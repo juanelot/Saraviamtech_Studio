@@ -12,7 +12,7 @@ persona revise en la web, y seguir despues.
 
 Ejemplos:
   # De cero: material + carpeta de imagenes/videos -> MP4
-  python estudio_cli.py --titulo "Mundial 2026" --material-archivo notas.txt \\
+  python estudio_cli.py --titulo "Resumen de mercados" --material-archivo notas.txt \\
       --recursos-dir ./mis_recursos --duracion 60 --out ./videos
 
   # Tu propio guion, leido tal cual
@@ -21,6 +21,12 @@ Ejemplos:
   # Parar tras el guion para revisarlo en la web, y seguir luego
   python estudio_cli.py --titulo "X" --material-archivo notas.txt --hasta guion
   python estudio_cli.py --proyecto 3f9a2c1b7d10 --out ./videos
+
+  # Contenido creado a mano en Flow / extension: 1) prompts y script.json
+  python estudio_cli.py --titulo "X" --material-archivo notas.txt --asignacion escenas \\
+      --generar imagenes_videos --estilo "fotografia documental" --hasta escenas --exportar-json ./mi-proyecto/script.json
+  #   2) (generas con la extension en ./mi-proyecto) 3) subir y montar:
+  python estudio_cli.py --proyecto <id> --contenido-dir ./mi-proyecto --out ./videos
 
   # Perfil con params por etapa (ver estudio_perfil.example.json)
   python estudio_cli.py --perfil estudio_perfil.json --titulo "X" --material "..." --recursos-dir ./media
@@ -44,7 +50,7 @@ from pathlib import Path
 import requests
 
 DEFAULT_API_BASE = os.environ.get("MPT_API_BASE", "https://virales.saraviamtech.com/api/mpt/v1")
-ETAPAS = ["guion", "voz", "recursos", "asignacion", "render"]
+ETAPAS = ["guion", "voz", "escenas", "recursos", "asignacion", "render"]
 EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 
@@ -92,6 +98,18 @@ class Api:
             for _, (_, f) in archivos:
                 f.close()
 
+    def subir_a(self, pid, rutas, sub):
+        archivos = [("archivos", (p.name, open(p, "rb"))) for p in rutas]
+        try:
+            return self._r("POST", f"/proyectos/{pid}/recursos", params={"sub": sub}, files=archivos, timeout=1800).json()
+        finally:
+            for _, (_, f) in archivos:
+                f.close()
+
+    def script_json(self, pid, destino: Path):
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(self._r("GET", f"/proyectos/{pid}/script.json").content)
+
     def subidos(self, pid):
         return {a["nombre"] for a in self._r("GET", f"/proyectos/{pid}/recursos").json()["archivos"]}
 
@@ -112,7 +130,7 @@ def _leer(ruta):
 
 def construir_params(args, perfil):
     params = {e: dict(perfil.get(e) or {}) for e in ETAPAS}
-    g, v, r, a, rd = (params[e] for e in ETAPAS)
+    g, v, r, a, rd = (params[e] for e in ("guion", "voz", "recursos", "asignacion", "render"))
     if args.material is not None:
         g["material"] = args.material
     if args.material_archivo:
@@ -136,6 +154,11 @@ def construir_params(args, perfil):
         r["vision"] = False
     if args.criterio is not None:
         a["criterio"] = args.criterio
+    esc = params["escenas"]
+    for clave, valor in [("generar", args.generar), ("estilo", args.estilo), ("segundos", args.segundos_escena),
+                         ("idioma_prompts", args.idioma_prompts)]:
+        if valor is not None:
+            esc[clave] = valor
     if args.asignacion is not None:
         a["modo"] = args.asignacion
     for clave, valor in [("aspecto", args.formato), ("encaje", args.encaje), ("zoom", args.zoom),
@@ -161,6 +184,22 @@ def subir_carpeta(api, pid, carpeta):
         res = api.subir(pid, lote)
         print(f"  subidos {i + len(lote)}/{len(nuevas)}"
               + (f" (rechazados: {res['rechazados']})" if res.get("rechazados") else ""), flush=True)
+
+
+def subir_contenido(api, pid, carpeta):
+    """Sube la carpeta de la extension respetando images/ y videos/ (y lo suelto)."""
+    base = Path(carpeta)
+    grupos = {"": [], "images": [], "videos": []}
+    for p in sorted(base.rglob("*"), key=lambda x: str(x).lower()):
+        if p.is_file() and p.suffix.lower() in EXT:
+            partes = [x.lower() for x in p.relative_to(base).parts[:-1]]
+            sub = "videos" if "videos" in partes else "images" if "images" in partes else ""
+            grupos[sub].append(p)
+    for sub, rutas in grupos.items():
+        for i in range(0, len(rutas), 20):
+            api.subir_a(pid, rutas[i:i + 20], sub)
+        if rutas:
+            print(f"contenido: {len(rutas)} archivos en {sub or '(raiz)'}", flush=True)
 
 
 def esperar(api, pid, timeout):
@@ -214,7 +253,15 @@ def main():
     r.add_argument("--recursos-dir", help="carpeta LOCAL cuyos archivos se suben al proyecto")
     r.add_argument("--carpeta-servidor", help="carpeta que YA esta en el servidor")
     r.add_argument("--sin-vision", action="store_true", help="no pedir a Claude que mire los recursos")
-    r.add_argument("--asignacion", choices=["claude", "orden"])
+    r.add_argument("--asignacion", choices=["claude", "orden", "escenas"],
+                   help="escenas = contenido creado a mano (Flow/extension), un archivo por escena")
+    r.add_argument("--contenido-dir", help="carpeta con lo creado (formato extension: images/ videos/)")
+    e = ap.add_argument_group("escenas (contenido creado en Flow / extension)")
+    e.add_argument("--generar", choices=["no", "imagenes", "imagenes_videos"], help="que prompts escribe Claude")
+    e.add_argument("--estilo", help="estilo visual para todas las imagenes")
+    e.add_argument("--segundos-escena", type=float, help="duracion objetivo de cada escena")
+    e.add_argument("--idioma-prompts", choices=["en", "es", "pt"])
+    e.add_argument("--exportar-json", help="guardar aqui el script.json para la extension")
     r.add_argument("--criterio", help="indicacion para elegir recursos")
     rd = ap.add_argument_group("render")
     rd.add_argument("--formato", choices=["9:16", "16:9", "1:1"])
@@ -251,6 +298,8 @@ def main():
             api.editar(pid, cambios)
         if args.recursos_dir:
             subir_carpeta(api, pid, args.recursos_dir)
+        if args.contenido_dir:
+            subir_contenido(api, pid, args.contenido_dir)
 
         forzar = [e for e in args.forzar.split(",") if e.strip()]
         api.ejecutar(pid, args.hasta, forzar)
@@ -264,6 +313,9 @@ def main():
         if fallo:
             print("\n".join(vista.get("log", [])[-15:]))
             return 1
+        if args.exportar_json:
+            api.script_json(pid, Path(args.exportar_json))
+            print(f"script.json -> {args.exportar_json}", flush=True)
         if args.hasta == "render":
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
@@ -280,8 +332,8 @@ def main():
 
 
 def _necesarias(hasta):
-    deps = {"guion": [], "voz": ["guion"], "recursos": [], "asignacion": ["voz", "recursos"],
-            "render": ["asignacion", "voz"]}
+    deps = {"guion": [], "voz": ["guion"], "escenas": ["voz"], "recursos": [],
+            "asignacion": ["voz", "recursos"], "render": ["asignacion", "voz"]}
     vistas, pila = set(), [hasta]
     while pila:
         e = pila.pop()

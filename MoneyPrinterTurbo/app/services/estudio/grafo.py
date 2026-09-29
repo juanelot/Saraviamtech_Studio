@@ -1,9 +1,13 @@
 """
 El grafo de etapas del Estudio (idea de AS Video Studio, simplificada).
 
-    guion ──► voz ──┐
-                    ├──► asignacion ──► render
-    recursos ───────┘
+    guion ──► voz ──┬──────────────┐
+                    └─► escenas ···┤  (solo en modo "escenas")
+    recursos ──────────────────────┴──► asignacion ──► render
+
+La dependencia asignacion -> escenas existe SOLO si asignacion.modo == "escenas"
+(ver deps_de): asi los proyectos en modo "claude"/"orden" no ven cambiar su firma
+por una etapa que no usan.
 
 Cada etapa guarda la FIRMA de sus entradas: sus params efectivos + la firma de
 salida de las etapas de las que depende (+ una huella extra si la etapa la
@@ -30,14 +34,23 @@ from loguru import logger
 import app.config  # noqa: F401  -- configura loguru ANTES de anadir sinks (hace logger.remove())
 from app.services.estudio import almacen
 
-ETAPAS = ["guion", "voz", "recursos", "asignacion", "render"]
+ETAPAS = ["guion", "voz", "escenas", "recursos", "asignacion", "render"]
+# Dependencias maximas (la de asignacion -> escenas depende del modo: deps_de).
 DEPS = {
     "guion": [],
     "voz": ["guion"],
+    "escenas": ["voz"],
     "recursos": [],
-    "asignacion": ["voz", "recursos"],
+    "asignacion": ["voz", "recursos", "escenas"],
     "render": ["asignacion", "voz"],
 }
+
+
+def deps_de(proyecto, etapa):
+    if etapa == "asignacion":
+        modo = ((proyecto.get("params") or {}).get("asignacion") or {}).get("modo", "claude")
+        return ["voz", "recursos", "escenas"] if modo == "escenas" else ["voz", "recursos"]
+    return DEPS[etapa]
 
 
 class Cancelado(Exception):
@@ -45,9 +58,9 @@ class Cancelado(Exception):
 
 
 def modulo(etapa):
-    from app.services.estudio import asignacion, guion, recursos, render, voz
+    from app.services.estudio import asignacion, escenas, guion, recursos, render, voz
 
-    return {"guion": guion, "voz": voz, "recursos": recursos,
+    return {"guion": guion, "voz": voz, "escenas": escenas, "recursos": recursos,
             "asignacion": asignacion, "render": render}[etapa]
 
 
@@ -62,7 +75,7 @@ def _hash(obj) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:20]
 
 
-def cierre(hasta):
+def cierre(hasta, proyecto):
     """Las etapas que `hasta` necesita, en orden de ejecucion."""
     necesarias = set()
 
@@ -70,7 +83,7 @@ def cierre(hasta):
         if e in necesarias:
             return
         necesarias.add(e)
-        for d in DEPS[e]:
+        for d in deps_de(proyecto, e):
             subir(d)
 
     subir(hasta)
@@ -85,7 +98,7 @@ class Contexto:
         self.proyecto = proyecto
         self.etapa = etapa
         self.params = params_efectivos(proyecto, etapa)
-        self.salidas = {d: (estado["etapas"].get(d) or {}).get("salida") for d in DEPS[etapa]}
+        self.salidas = {d: (estado["etapas"].get(d) or {}).get("salida") for d in deps_de(proyecto, etapa)}
         self._vivo = vivo
 
     def dir(self, *partes, crear=True):
@@ -112,7 +125,7 @@ def firma_entrada(pid, proyecto, estado, etapa):
     ctx = Contexto(pid, proyecto, estado, etapa)
     mod = modulo(etapa)
     extra = mod.huella(ctx) if hasattr(mod, "huella") else None
-    deps = {d: (estado["etapas"].get(d) or {}).get("firma_salida") for d in DEPS[etapa]}
+    deps = {d: (estado["etapas"].get(d) or {}).get("firma_salida") for d in deps_de(proyecto, etapa)}
     return _hash({"params": ctx.params, "deps": deps, "extra": extra})
 
 
@@ -136,7 +149,7 @@ def evaluar(pid):
     for e in ETAPAS:
         reg = estado["etapas"].get(e) or {}
         calc = firma_entrada(pid, proyecto, estado, e)
-        deps_ok = all(vista[d]["estado"] == "ok" for d in DEPS[e])
+        deps_ok = all(vista[d]["estado"] == "ok" for d in deps_de(proyecto, e))
         if e == etapa_viva:
             est = "ejecutando"
         elif reg.get("error") and reg.get("firma_error") == calc:
@@ -214,13 +227,13 @@ def _correr(pid, hasta, forzar, vivo):
     )
     _anotar(vivo, f"== ejecutar hasta «{hasta}»")
     try:
-        for etapa in cierre(hasta):
-            _, estado, vista = evaluar(pid)
+        for etapa in cierre(hasta, almacen.cargar(pid)):
+            proyecto, estado, vista = evaluar(pid)
             if vista[etapa]["estado"] == "ok" and etapa not in forzar:
                 _anotar(vivo, f"[{etapa}] al dia, se reutiliza")
                 continue
-            for d in DEPS[etapa]:
-                if evaluar(pid)[2][d]["estado"] != "ok":
+            for d in deps_de(proyecto, etapa):
+                if vista[d]["estado"] != "ok":
                     raise RuntimeError(f"no se puede ejecutar {etapa}: {d} no esta al dia")
             _ejecutar_etapa(pid, etapa, vivo)
         _anotar(vivo, "== listo")

@@ -8,6 +8,7 @@ import { ChipEstado } from "./ui";
 import PanelMaterial from "./paneles/PanelMaterial";
 import PanelGuion from "./paneles/PanelGuion";
 import PanelVoz from "./paneles/PanelVoz";
+import PanelEscenas from "./paneles/PanelEscenas";
 import PanelRecursos from "./paneles/PanelRecursos";
 import PanelAsignacion from "./paneles/PanelAsignacion";
 import PanelVideo from "./paneles/PanelVideo";
@@ -22,14 +23,15 @@ export interface PanelProps {
   recargar: () => Promise<void>;
 }
 
-type ParadaId = "material" | "guion" | "voz" | "recursos" | "asignacion" | "video";
+type ParadaId = "material" | "guion" | "voz" | "escenas" | "recursos" | "asignacion" | "video";
 
 const PARADAS: { id: ParadaId; etapa: EtapaId; titulo: string; sub: string }[] = [
   { id: "material", etapa: "guion", titulo: "Material", sub: "De que trata" },
   { id: "guion", etapa: "guion", titulo: "Guion", sub: "Lo que se dice" },
   { id: "voz", etapa: "voz", titulo: "Voz", sub: "Quien lo dice" },
-  { id: "recursos", etapa: "recursos", titulo: "Recursos", sub: "Tus imagenes y videos" },
-  { id: "asignacion", etapa: "asignacion", titulo: "Planos", sub: "Que se ve en cada frase" },
+  { id: "escenas", etapa: "escenas", titulo: "Escenas", sub: "Prompts para Flow" },
+  { id: "recursos", etapa: "recursos", titulo: "Contenido", sub: "Imagenes y videos" },
+  { id: "asignacion", etapa: "asignacion", titulo: "Ajuste", sub: "Que se ve en cada frase" },
   { id: "video", etapa: "render", titulo: "Video", sub: "Montaje final" },
 ];
 
@@ -37,14 +39,15 @@ const PARADAS: { id: ParadaId; etapa: EtapaId; titulo: string; sub: string }[] =
 const SIGUIENTE: Record<ParadaId, { texto: string; hasta?: EtapaId; ir?: ParadaId }> = {
   material: { texto: "Escribir guion", hasta: "guion", ir: "guion" },
   guion: { texto: "Generar voz", hasta: "voz", ir: "voz" },
-  voz: { texto: "Elegir recursos", ir: "recursos" },
-  recursos: { texto: "Asignar planos", hasta: "asignacion", ir: "asignacion" },
+  voz: { texto: "Escenas y prompts", ir: "escenas" },
+  escenas: { texto: "Subir contenido", hasta: "escenas", ir: "recursos" },
+  recursos: { texto: "Ajustar planos", hasta: "asignacion", ir: "asignacion" },
   asignacion: { texto: "Montar video", hasta: "render", ir: "video" },
   video: { texto: "Montar video", hasta: "render" },
 };
 
 const NOMBRE_ETAPA: Record<EtapaId, string> = {
-  guion: "Guion", voz: "Voz", recursos: "Recursos", asignacion: "Planos", render: "Video",
+  guion: "Guion", voz: "Voz", escenas: "Escenas", recursos: "Contenido", asignacion: "Ajuste", render: "Video",
 };
 
 export default function Proyecto({ id }: { id: string }) {
@@ -73,6 +76,7 @@ export default function Proyecto({ id }: { id: string }) {
         const primera: ParadaId = !pmat.trim() ? "material"
           : e.guion.estado !== "ok" ? "guion"
           : e.voz.estado !== "ok" ? "voz"
+          : e.asignacion.params.modo === "escenas" && e.escenas.estado !== "ok" ? "escenas"
           : e.recursos.estado !== "ok" ? "recursos"
           : e.asignacion.estado !== "ok" ? "asignacion" : "video";
         const hash = window.location.hash.slice(1) as ParadaId;
@@ -162,12 +166,19 @@ export default function Proyecto({ id }: { id: string }) {
   const sig = SIGUIENTE[parada];
   const materialListo = !!String(p("guion").material || "").trim();
 
-  function estadoParada(x: (typeof PARADAS)[number]): EstadoEtapa {
+  const modoEscenas = p("asignacion").modo === "escenas";
+
+  function estadoParada(x: (typeof PARADAS)[number]): EstadoEtapa | null {
     if (x.id === "material") return materialListo ? "ok" : "pendiente";
+    if (x.id === "escenas" && !modoEscenas) return null; // no aplica en "mis recursos"
     return vista!.etapas[x.etapa].estado;
   }
 
   async function accionPrincipal() {
+    if (parada === "voz" && !modoEscenas) {
+      setParada("recursos");
+      return;
+    }
     if (sig.hasta) await ejecutar(sig.hasta);
     if (sig.ir) setParada(sig.ir);
   }
@@ -188,7 +199,7 @@ export default function Proyecto({ id }: { id: string }) {
       </div>
 
       {/* Etapas */}
-      <ol className="mb-6 grid grid-cols-3 gap-2 md:grid-cols-6">
+      <ol className="mb-6 grid grid-cols-4 gap-2 md:grid-cols-7">
         {PARADAS.map((x, i) => {
           const est = estadoParada(x);
           const activa = x.id === parada;
@@ -207,11 +218,13 @@ export default function Proyecto({ id }: { id: string }) {
                       : est === "error" ? "bg-error text-white"
                       : est === "obsoleta" ? "bg-aviso text-white"
                       : "bg-hundido text-tinta-3"}`}>
-                    {est === "ok" ? <Check size={13} strokeWidth={3} /> : i + 1}
+                    {est === "ok" ? <Check size={13} strokeWidth={3} /> : est === null ? "–" : i + 1}
                   </span>
                   <span className="truncate text-sm font-semibold">{x.titulo}</span>
                 </div>
-                <p className="mt-1 hidden truncate text-xs text-tinta-3 md:block">{x.sub}</p>
+                <p className="mt-1 hidden truncate text-xs text-tinta-3 md:block">
+                  {x.id === "escenas" && !modoEscenas ? "No se usa (mis recursos)" : x.sub}
+                </p>
               </button>
             </li>
           );
@@ -236,6 +249,7 @@ export default function Proyecto({ id }: { id: string }) {
       {parada === "material" && <PanelMaterial {...props} />}
       {parada === "guion" && <PanelGuion {...props} />}
       {parada === "voz" && <PanelVoz {...props} />}
+      {parada === "escenas" && <PanelEscenas {...props} />}
       {parada === "recursos" && <PanelRecursos {...props} />}
       {parada === "asignacion" && <PanelAsignacion {...props} />}
       {parada === "video" && <PanelVideo {...props} />}
@@ -281,7 +295,7 @@ export default function Proyecto({ id }: { id: string }) {
                 onClick={accionPrincipal}
                 disabled={(parada === "material" && !materialListo) || (parada === "video" && vista.etapas.render.estado === "ok")}
               >
-                {sig.texto} <ArrowRight size={15} />
+                {parada === "voz" && !modoEscenas ? "Subir contenido" : sig.texto} <ArrowRight size={15} />
               </button>
             </div>
           )}

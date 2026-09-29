@@ -4,12 +4,14 @@ API del Estudio: proyectos por etapas (guion -> voz -> recursos -> asignacion
 
 Todas las rutas cuelgan de /api/v1/estudio.
 """
+import json
 import os
 import re
 import shutil
+import zipfile
 
-from fastapi import Body, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Body, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
 from app.services.estudio import almacen, asistente, grafo, medios, recursos
@@ -122,9 +124,9 @@ def duplicar(pid: str, body: dict = Body(default={})):
     src = almacen.dir_proyecto(pid, "recursos")
     dst = almacen.dir_proyecto(nuevo["id"], "recursos", crear=True)
     if os.path.isdir(src):
-        for n in os.listdir(src):
-            if os.path.isfile(os.path.join(src, n)) and medios.tipo_de(n):
-                shutil.copy2(os.path.join(src, n), os.path.join(dst, n))
+        # Con subcarpetas: images/ y videos/ del modo escenas.
+        shutil.copytree(src, dst, dirs_exist_ok=True,
+                        ignore=lambda d, ns: [n for n in ns if os.path.isfile(os.path.join(d, n)) and not medios.tipo_de(n)])
     return _vista(nuevo["id"])
 
 
@@ -154,32 +156,61 @@ def listar_subidos(pid: str):
     _existe(pid)
     carpeta = almacen.dir_proyecto(pid, "recursos", crear=True)
     archivos = []
-    for n in sorted(os.listdir(carpeta), key=str.lower):
-        ruta = os.path.join(carpeta, n)
-        if os.path.isfile(ruta) and medios.tipo_de(ruta):
-            archivos.append({"nombre": n, "tipo": medios.tipo_de(ruta), "tam": os.path.getsize(ruta)})
+    for base, _dirs, nombres in os.walk(carpeta):
+        for n in nombres:
+            ruta = os.path.join(base, n)
+            if medios.tipo_de(ruta) and not n.endswith(".part"):
+                rel = os.path.relpath(ruta, carpeta).replace("\\", "/")
+                archivos.append({"nombre": rel, "tipo": medios.tipo_de(ruta), "tam": os.path.getsize(ruta),
+                                 "carpeta": recursos.subcarpeta_de(rel), "escena": recursos.numero_escena(rel)})
+    archivos.sort(key=lambda a: [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", a["nombre"])])
     return {"archivos": archivos}
 
 
-@router.post("/estudio/proyectos/{pid}/recursos", summary="Subir imagenes o videos")
-def subir(pid: str, archivos: list[UploadFile] = File(...)):
+def _guardar_subida(origen, carpeta, nombre, sub):
+    nombre = NOMBRE_SEGURO.sub("_", os.path.basename(nombre or "")).strip() or "archivo"
+    if not medios.tipo_de(nombre):
+        return None
+    destino_dir = os.path.join(carpeta, sub) if sub else carpeta
+    os.makedirs(destino_dir, exist_ok=True)
+    destino = almacen.dentro_de(carpeta, os.path.join(sub, nombre) if sub else nombre)
+    with open(destino + ".part", "wb") as f:
+        shutil.copyfileobj(origen, f, 1 << 20)
+    os.replace(destino + ".part", destino)
+    return f"{sub}/{nombre}" if sub else nombre
+
+
+@router.post("/estudio/proyectos/{pid}/recursos", summary="Subir imagenes, videos o un ZIP")
+def subir(pid: str, archivos: list[UploadFile] = File(...),
+          sub: str = Query("", description="'' | images | videos (formato de la extension)")):
+    """Un ZIP se descomprime: lo que este dentro de images/ o videos/ va a esas
+    subcarpetas (carpeta de la extension "AI Content Generator"); el resto, suelto."""
     _existe(pid)
+    if sub not in ("", "images", "videos"):
+        raise HTTPException(400, "sub debe ser '', images o videos")
     carpeta = almacen.dir_proyecto(pid, "recursos", crear=True)
     guardados, rechazados = [], []
     for a in archivos:
-        nombre = NOMBRE_SEGURO.sub("_", os.path.basename(a.filename or "")).strip() or "archivo"
-        if not medios.tipo_de(nombre):
-            rechazados.append(a.filename)
+        if (a.filename or "").lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(a.file) as z:
+                    for info in z.infolist():
+                        if info.is_dir() or "__MACOSX" in info.filename:
+                            continue
+                        sub_zip = recursos.subcarpeta_de(info.filename) or sub
+                        with z.open(info) as origen:
+                            hecho = _guardar_subida(origen, carpeta, info.filename, sub_zip)
+                        (guardados if hecho else rechazados).append(hecho or info.filename)
+            except zipfile.BadZipFile:
+                rechazados.append(a.filename)
             continue
-        destino = almacen.dentro_de(carpeta, nombre)
-        with open(destino + ".part", "wb") as f:
-            shutil.copyfileobj(a.file, f, 1 << 20)
-        os.replace(destino + ".part", destino)
-        guardados.append(nombre)
+        hecho = _guardar_subida(a.file, carpeta, a.filename, sub)
+        (guardados if hecho else rechazados).append(hecho or a.filename)
+    rechazados = [r for r in rechazados if not r.lower().endswith(("script.json", ".ds_store", "thumbs.db"))]
     return {"guardados": guardados, "rechazados": rechazados}
 
 
-@router.delete("/estudio/proyectos/{pid}/recursos/{nombre}", summary="Quitar un archivo subido")
+@router.delete("/estudio/proyectos/{pid}/recursos/{nombre:path}", summary="Quitar un archivo subido")
 def quitar(pid: str, nombre: str):
     _existe(pid)
     try:
@@ -189,6 +220,48 @@ def quitar(pid: str, nombre: str):
     if os.path.isfile(ruta):
         os.remove(ruta)
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ escenas
+
+def _escenas(pid):
+    """Escenas de la ultima ejecucion + las ediciones a mano ACTUALES (aunque la
+    etapa no se haya vuelto a ejecutar: lo que se descarga es lo que se ve)."""
+    _, _, etapas = grafo.evaluar(_existe(pid)["id"])
+    salida = etapas["escenas"]["salida"]
+    if not salida:
+        raise HTTPException(404, "todavia no hay escenas: ejecuta la etapa Escenas")
+    ediciones = etapas["escenas"]["params"].get("ediciones") or {}
+    escenas = []
+    for e in salida["escenas"]:
+        e = dict(e)
+        ed = ediciones.get(str(e["scene_number"])) or {}
+        for campo in ("image_prompt", "video_prompt"):
+            if isinstance(ed.get(campo), str) and ed[campo].strip():
+                e[campo] = " ".join(ed[campo].split())
+        escenas.append(e)
+    return escenas
+
+
+@router.get("/estudio/proyectos/{pid}/script.json", summary="script.json para la extension (Flow/Vibes)")
+def script_json(pid: str):
+    datos = {"scenes": [{"scene_number": e["scene_number"], "image_prompt": e["image_prompt"],
+                         "video_prompt": e["video_prompt"], "narration": e["narration"]} for e in _escenas(pid)]}
+    return Response(json.dumps(datos, ensure_ascii=False, indent=2), media_type="application/json",
+                    headers={"Content-Disposition": 'attachment; filename="script.json"'})
+
+
+@router.get("/estudio/proyectos/{pid}/prompts.txt", summary="Prompts en texto, escena por escena")
+def prompts_txt(pid: str):
+    bloques = []
+    for e in _escenas(pid):
+        b = [f"ESCENA {e['scene_number']}  ({e['duracion']:.1f}s)", f"Narracion: {e['narration']}"]
+        if e.get("image_prompt"):
+            b.append(f"IMAGEN: {e['image_prompt']}")
+        if e.get("video_prompt"):
+            b.append(f"VIDEO: {e['video_prompt']}")
+        bloques.append("\n".join(b))
+    return PlainTextResponse("\n\n".join(bloques), headers={"Content-Disposition": 'attachment; filename="prompts.txt"'})
 
 
 # ------------------------------------------------------------------ archivos

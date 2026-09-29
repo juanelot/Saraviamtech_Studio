@@ -1,6 +1,6 @@
 // Cliente del backend del Estudio (/api/v1/estudio via rewrite /api/estudio).
 
-export type EtapaId = "guion" | "voz" | "recursos" | "asignacion" | "render";
+export type EtapaId = "guion" | "voz" | "escenas" | "recursos" | "asignacion" | "render";
 export type EstadoEtapa = "ok" | "obsoleta" | "pendiente" | "error" | "ejecutando";
 
 export interface Plano {
@@ -14,6 +14,20 @@ export interface Plano {
   offset?: number;
   motivo?: string;
   fijado?: boolean;
+  escena?: number;
+}
+
+export interface Escena {
+  scene_number: number;
+  inicio: number;
+  fin: number;
+  duracion: number;
+  planos: number[];
+  narration: string;
+  image_prompt: string;
+  video_prompt: string;
+  image_prompt_editado?: boolean;
+  video_prompt_editado?: boolean;
 }
 
 export interface Recurso {
@@ -26,12 +40,18 @@ export interface Recurso {
   duracion: number;
   descripcion: string;
   descripcion_manual: boolean;
+  miniatura?: string;
+  carpeta?: "images" | "videos" | "";
+  escena?: number | null;
 }
+
+export const mini = (r: { id: string; miniatura?: string }) => r.miniatura || r.id.split("-")[0];
 
 export interface SalidaGuion { texto: string; origen: string; palabras: number; duracion_estimada_s: number }
 export interface SalidaVoz { audio: string; srt: string; duracion: number; planos: Plano[] }
 export interface SalidaRecursos { recursos: Recurso[]; total: number; imagenes: number; videos: number; sin_descripcion: number }
-export interface SalidaAsignacion { planos: Plano[]; recursos_usados: number }
+export interface SalidaEscenas { escenas: Escena[]; total: number; con_prompt: number; generar: string; script: string }
+export interface SalidaAsignacion { planos: Plano[]; recursos_usados: number; faltan?: number[] }
 export interface SalidaRender {
   mp4: string; duracion: number; ancho: number; alto: number;
   clips_nuevos: number; clips_reutilizados: number; tam_mb: number;
@@ -61,6 +81,7 @@ export interface Vista {
   etapas: {
     guion: VistaEtapa<SalidaGuion>;
     voz: VistaEtapa<SalidaVoz>;
+    escenas: VistaEtapa<SalidaEscenas>;
     recursos: VistaEtapa<SalidaRecursos>;
     asignacion: VistaEtapa<SalidaAsignacion>;
     render: VistaEtapa<SalidaRender>;
@@ -69,6 +90,11 @@ export interface Vista {
   deps: Record<EtapaId, EtapaId[]>;
   trabajo: Trabajo | null;
   log: string[];
+}
+
+export interface Subido {
+  nombre: string; tipo: "imagen" | "video"; tam: number;
+  carpeta: "images" | "videos" | ""; escena: number | null;
 }
 
 export interface ResumenProyecto {
@@ -108,15 +134,14 @@ export const api = {
   ejecutar: (id: string, hasta: EtapaId, forzar: EtapaId[] = []) =>
     pedir<Vista>(`/proyectos/${id}/ejecutar`, { method: "POST", ...json({ hasta, forzar }) }),
   cancelar: (id: string) => pedir<{ cancelado: boolean }>(`/proyectos/${id}/cancelar`, { method: "POST" }),
-  subidos: (id: string) =>
-    pedir<{ archivos: { nombre: string; tipo: "imagen" | "video"; tam: number }[] }>(`/proyectos/${id}/recursos`),
-  subir: (id: string, archivos: File[]) => {
+  subidos: (id: string) => pedir<{ archivos: Subido[] }>(`/proyectos/${id}/recursos`),
+  subir: (id: string, archivos: File[], sub: "" | "images" | "videos" = "") => {
     const fd = new FormData();
     archivos.forEach((a) => fd.append("archivos", a));
-    return pedir<{ guardados: string[]; rechazados: string[] }>(`/proyectos/${id}/recursos`, { method: "POST", body: fd });
+    return pedir<{ guardados: string[]; rechazados: string[] }>(`/proyectos/${id}/recursos?sub=${sub}`, { method: "POST", body: fd });
   },
   quitar: (id: string, nombre: string) =>
-    pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${encodeURIComponent(nombre)}`, { method: "DELETE" }),
+    pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${nombre.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" }),
 };
 
 export interface Turno { rol: "persona" | "asistente"; texto: string; t: number }
@@ -134,6 +159,8 @@ export const url = {
   miniatura: (h: string) => `${BASE}/miniatura/${h}`,
   original: (id: string, h: string) => `${BASE}/proyectos/${id}/original/${h}`,
   descargar: (id: string) => `${BASE}/proyectos/${id}/descargar`,
+  scriptJson: (id: string) => `${BASE}/proyectos/${id}/script.json`,
+  promptsTxt: (id: string) => `${BASE}/proyectos/${id}/prompts.txt`,
 };
 
 export async function listarMusica(): Promise<string[]> {

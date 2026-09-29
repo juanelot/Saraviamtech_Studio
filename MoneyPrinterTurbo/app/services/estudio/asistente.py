@@ -56,7 +56,21 @@ SISTEMA = (
 
 GUIA = """GUIA DEL ESTUDIO (resumen del producto)
 
-Flujo por etapas (ids del grafo): guion -> voz -> recursos -> asignacion -> render.
+Flujo por etapas (ids del grafo): guion -> voz -> escenas -> recursos -> asignacion -> render.
+Dos formas de poner imagenes (asignacion.modo):
+  * "escenas" (contenido creado A MANO en Google Flow / la extension "AI Content
+    Generator"): la etapa ESCENAS agrupa las frases de la voz en escenas (segundos, ~6-8 s)
+    y Claude escribe image_prompt y, si se pide, video_prompt (generar = no | imagenes |
+    imagenes_videos; estilo visual comun; idioma de prompts, ingles por defecto). Se
+    descarga script.json (formato de la extension: {"scenes":[{scene_number, image_prompt,
+    video_prompt, narration}]}) o prompts.txt, o se copian uno a uno. La persona genera y
+    sube en CONTENIDO la carpeta de la extension (images/ y videos/), un ZIP o archivos
+    sueltos: cada archivo va a su escena por el NUMERO del nombre (1.png, scene_2.mp4).
+    Si hay video e imagen de una escena se usa el video (asignacion.preferir). Escenas sin
+    archivo repiten el anterior (se avisa). NO se usan APIs de imagen: solo el CLI de Claude.
+  * "claude" / "orden": recursos propios; Claude elige uno por frase (o en orden). La
+    etapa escenas no se usa.
+En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Video.
 - Material/Guion: la persona pega material; Claude CLI redacta con duracion objetivo
   (hasta 3 h; palabras = segundos x ~2.5) o usa el texto tal cual (modo literal).
   Editar el guion guarda `texto_manual`; "Rehacer con Claude" lo vacia.

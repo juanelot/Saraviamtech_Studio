@@ -15,6 +15,7 @@ ni en este proyecto ni en otro. La persona puede corregir cualquier descripcion
 """
 import hashlib
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
@@ -54,28 +55,55 @@ def _carpeta_externa(ruta):
     return ruta
 
 
+PATRON_ESCENA = re.compile(r"(?:scene|escena|image|imagen|img|video|clip|shot)[\s_\-]*0*(\d+)", re.I)
+
+
+def numero_escena(nombre: str):
+    """Numero de escena sacado del nombre: scene_003.png -> 3, 12.mp4 -> 12."""
+    base = os.path.splitext(os.path.basename(nombre))[0]
+    m = PATRON_ESCENA.search(base) or re.search(r"\d+", base)
+    return int(m.group(1) if m.re is PATRON_ESCENA else m.group(0)) if m else None
+
+
+def subcarpeta_de(nombre: str) -> str:
+    """"images" / "videos" si el archivo viene de esas carpetas (formato de la extension)."""
+    partes = [x.lower() for x in nombre.replace("\\", "/").split("/")[:-1]]
+    for c in ("videos", "images"):
+        if c in partes:
+            return c
+    return ""
+
+
+def _recorrer(raiz, origen):
+    encontrados = []
+    for base, _dirs, nombres in os.walk(raiz):
+        for n in nombres:
+            ruta = os.path.join(base, n)
+            if medios.tipo_de(ruta) and not n.endswith(".part"):
+                encontrados.append((origen, os.path.relpath(ruta, raiz).replace("\\", "/"), ruta))
+    return sorted(encontrados, key=lambda a: _orden_natural(a[1]))
+
+
+def _orden_natural(nombre):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", nombre)]
+
+
 def _listar(ctx):
-    """[(origen, nombre_visible, ruta_abs)] ordenado por nombre."""
-    archivos = []
-    subidos = ctx.dir("recursos")
-    for n in sorted(os.listdir(subidos), key=str.lower):
-        ruta = os.path.join(subidos, n)
-        if os.path.isfile(ruta) and medios.tipo_de(ruta):
-            archivos.append(("subido", n, ruta))
+    """[(origen, nombre_visible, ruta_abs)]: subidos (con subcarpetas) + carpeta externa."""
+    archivos = _recorrer(ctx.dir("recursos"), "subido")
     externa = _carpeta_externa(ctx.params.get("carpeta"))
     if externa:
-        encontrados = []
-        for base, _dirs, nombres in os.walk(externa):
-            for n in nombres:
-                ruta = os.path.join(base, n)
-                if medios.tipo_de(ruta):
-                    encontrados.append(("carpeta", os.path.relpath(ruta, externa).replace("\\", "/"), ruta))
-        archivos += sorted(encontrados, key=lambda a: a[1].lower())
+        archivos += _recorrer(externa, "carpeta")
     return archivos
 
 
+def _sin_vision(ctx):
+    # En modo escenas cada archivo ya sabe a que escena va: no hace falta que Claude lo mire.
+    return ctx.params_de("asignacion").get("modo") == "escenas"
+
+
 def huella(ctx):
-    datos = []
+    datos = [["sin_vision", True]] if _sin_vision(ctx) else []
     try:
         for origen, nombre, ruta in _listar(ctx):
             st = os.stat(ruta)
@@ -162,12 +190,16 @@ def ejecutar(ctx):
     ctx.avisar(f"{len(archivos)} archivos: leyendo y haciendo miniaturas", 5)
     fichas = _fichas()
     nuevas = {}
-    recursos, vistos = [], set()
+    # En modo escenas un mismo contenido puede ir en dos escenas (scene_3 y scene_7
+    # iguales): se conservan los dos, con id propio y la MISMA miniatura/ficha.
+    # En los demas modos un duplicado no aporta nada y se omite.
+    duplicados = _sin_vision(ctx)
+    recursos, vistos = [], {}
     for k, (origen, nombre, ruta) in enumerate(archivos):
         ctx.avisar(progreso=5 + 35 * k / len(archivos))
         try:
             h = medios.huella(ruta)
-            if h in vistos:
+            if h in vistos and not duplicados:
                 continue
             ficha = fichas.get(h) or {}
             if "ancho" not in ficha:
@@ -185,10 +217,12 @@ def ejecutar(ctx):
         except Exception as e:  # noqa: BLE001
             logger.warning(f"recurso ilegible, se omite: {nombre} ({e})")
             continue
-        vistos.add(h)
-        recursos.append({"id": h, "nombre": nombre, "origen": origen, "ruta": ruta,
+        vistos[h] = vistos.get(h, 0) + 1
+        rid = h if vistos[h] == 1 else f"{h}-{vistos[h]}"
+        recursos.append({"id": rid, "miniatura": h, "nombre": nombre, "origen": origen, "ruta": ruta,
                          "tipo": ficha["tipo"], "ancho": ficha["ancho"], "alto": ficha["alto"],
-                         "duracion": ficha.get("duracion", 0.0)})
+                         "duracion": ficha.get("duracion", 0.0),
+                         "carpeta": subcarpeta_de(nombre), "escena": numero_escena(nombre)})
     if nuevas:
         _guardar_fichas(nuevas)
         fichas = _fichas()
@@ -196,8 +230,9 @@ def ejecutar(ctx):
     if not recursos:
         raise ValueError("ningun recurso se pudo leer")
 
-    faltan = [(r["id"], r["tipo"]) for r in recursos if not fichas.get(r["id"], {}).get("descripcion")]
-    if p.get("vision", True) and faltan:
+    faltan = list({r["miniatura"]: (r["miniatura"], r["tipo"]) for r in recursos
+                   if not fichas.get(r["miniatura"], {}).get("descripcion")}.values())
+    if p.get("vision", True) and faltan and not _sin_vision(ctx):
         lotes = [faltan[i:i + LOTE_VISION] for i in range(0, len(faltan), LOTE_VISION)]
         ctx.avisar(f"Claude mirando {len(faltan)} recursos nuevos ({len(lotes)} lotes)", 40)
         hechos = 0
@@ -220,7 +255,7 @@ def ejecutar(ctx):
         if (manuales.get(r["id"]) or "").strip():
             r["descripcion"], r["descripcion_manual"] = manuales[r["id"]].strip(), True
         else:
-            r["descripcion"] = fichas.get(r["id"], {}).get("descripcion", "")
+            r["descripcion"] = fichas.get(r["miniatura"], {}).get("descripcion", "")
             r["descripcion_manual"] = False
             if not r["descripcion"]:
                 sin_desc += 1

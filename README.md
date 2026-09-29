@@ -164,8 +164,8 @@ en `resource/songs`) y **Personalizada**:
 App aparte, con marca propia (el nombre está en `estudio-ui/lib/marca.ts`), que usa este mismo backend como motor. En lugar de ir a Pexels o generar imágenes, trabaja con **tus recursos**: imágenes y videos mezclados, subidos, en una carpeta del servidor o como URLs. **Claude CLI** hace el trabajo de texto con tu suscripción, sin API key.
 
 ```
-material → guion (Claude) → voz (TTS) ─┐
-                  recursos (Claude los mira) ─┴→ planos (Claude elige un recurso por frase) → video
+material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐   ← contenido creado por ti en Flow / extensión
+                                     recursos (tus archivos) ────────┴→ ajuste (por escena, o Claude elige) → video
 ```
 
 - **Por etapas y con firma.** Cada etapa guarda la firma de sus entradas (idea tomada de AS Video Studio). Si cambias algo, solo se rehace lo que dependía de eso: otra música rehace el acabado, fijar un plano a mano rehace ese clip, y editar el guion rehace la voz y lo que viene después.
@@ -173,6 +173,11 @@ material → guion (Claude) → voz (TTS) ─┐
 - **Planos.** La voz se corta en planos según sus pausas, igual que en el modo local. Claude elige qué recurso va en cada plano según lo que se dice ahí. Cualquier plano se puede fijar a mano.
 - **Render rápido.** Se genera un clip por plano con ffmpeg (zoom lento en las imágenes y bucle en los videos cortos) y los clips se cachean. El acabado (subtítulos ASS, voz y música) se hace en una sola pasada de ffmpeg: ~25 s frente a ~8 min del acabado MoviePy clásico, que sigue disponible como opción.
 
+- **Contenido creado en Flow o con la extensión, sin APIs de imagen.** En el paso **Escenas**, Claude agrupa las frases de la voz en escenas de unos 6–8 s y escribe para cada una el prompt de imagen y, si lo pides, el de video. Puedes descargar el `script.json` en el formato de la extensión "AI Content Generator", descargar `prompts.txt` o copiar los prompts uno a uno.
+
+  Después generas el contenido tú mismo y en **Contenido** subes la carpeta de la extensión (`images/` y `videos/`), un ZIP o archivos sueltos. Cada archivo va a su escena según el número de su nombre (`1.png`, `scene_2.mp4`); si una escena tiene imagen y video, se usa el video. Al final revisas en **Ajuste** y montas el video.
+
+  Con el CLI: `--asignacion escenas --generar imagenes_videos --hasta escenas --exportar-json ./carpeta/script.json`, y después `--proyecto <id> --contenido-dir ./carpeta`.
 - **Asistente** (la burbuja de abajo a la derecha): es un chat que responde con tu cuenta de Claude. Antes de cada pregunta recibe el estado del momento (proyecto abierto, etapas, errores, registro) y puede leer el código para explicar un error. No puede leer `config.toml` ni credenciales. Está en `app/services/estudio/asistente.py`.
 - **Mis videos**: cada tarjeta tiene portada y las acciones Ver, Descargar, Editar, Duplicar, Renombrar y Borrar. Duplicar copia los ajustes y los recursos, pero no lo generado.
 

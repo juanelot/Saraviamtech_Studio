@@ -4,6 +4,10 @@ Etapa ASIGNACION: que recurso va en cada plano.
   modo "claude": Claude lee cada plano (lo que se DICE en ese momento y cuanto
                  dura) y el catalogo (descripcion de cada imagen/video) y elige.
   modo "orden":  como el modo local de siempre: en orden alfabetico, ciclando.
+  modo "escenas": contenido creado A MANO (Flow, extension...) para las escenas
+                 de la etapa escenas: cada escena N lleva el archivo numerado N
+                 (videos/ antes que images/, o al reves con preferir="imagen").
+                 Los planos pasan a ser las escenas. Sin numeros: en orden.
 
 Encima se aplican los `fijados` de la persona ({indice_plano: id_recurso}).
 La eleccion de Claude se cachea (asignacion/base.json) con la huella de SUS
@@ -22,6 +26,8 @@ from loguru import logger
 from app.services import claude_cli
 from app.services.estudio import almacen
 
+# OJO: no anadir claves nuevas aqui sin necesidad: entran en la firma y dejan
+# obsoletos los proyectos guardados. `preferir` (modo escenas) se lee con .get().
 DEFECTOS = {
     "modo": "claude",
     "criterio": "",
@@ -125,8 +131,42 @@ def _rellenar(planos, recursos, eleccion, ordenado=False):
     return eleccion
 
 
+def _por_escenas(escenas, recursos, preferir):
+    """{scene_number: (recurso, motivo)} + lista de escenas sin archivo."""
+    def buscar(n, tipo, carpeta=None):
+        for r in recursos:
+            if r.get("escena") == n and r["tipo"] == tipo and (carpeta is None or r.get("carpeta") == carpeta):
+                return r
+        return None
+
+    orden_tipos = ["video", "imagen"] if preferir == "video" else ["imagen", "video"]
+    con_numero = any(r.get("escena") is not None for r in recursos)
+    eleccion, faltan, previo = {}, [], None
+    for k, e in enumerate(escenas):
+        n = e["scene_number"]
+        r = None
+        if con_numero:
+            for tipo in orden_tipos:
+                r = buscar(n, tipo, "videos" if tipo == "video" else "images") or buscar(n, tipo)
+                if r:
+                    break
+            motivo = f"escena {n}"
+        else:
+            r, motivo = recursos[k % len(recursos)], "en orden (sin numeros en los nombres)"
+        if r is None:
+            faltan.append(n)
+            r, motivo = previo, f"escena {n} SIN ARCHIVO: se repite el anterior"
+            if r is None:
+                r, motivo = recursos[0], f"escena {n} SIN ARCHIVO: se usa el primero"
+        eleccion[n] = (r["id"], motivo)
+        previo = r
+    return eleccion, faltan
+
+
 def ejecutar(ctx):
     p = ctx.params
+    if p["modo"] == "escenas":
+        return _ejecutar_escenas(ctx)
     planos = (ctx.salidas["voz"] or {}).get("planos") or []
     recursos = (ctx.salidas["recursos"] or {}).get("recursos") or []
     if not planos:
@@ -176,3 +216,34 @@ def ejecutar(ctx):
     usados = len({s["recurso"] for s in salida})
     ctx.avisar(f"asignacion lista: {len(salida)} planos, {usados}/{len(recursos)} recursos usados", 100)
     return {"planos": salida, "recursos_usados": usados}
+
+
+def _ejecutar_escenas(ctx):
+    p = ctx.params
+    escenas = (ctx.salidas.get("escenas") or {}).get("escenas") or []
+    recursos = (ctx.salidas["recursos"] or {}).get("recursos") or []
+    if not escenas:
+        raise ValueError("no hay escenas: ejecuta la etapa Escenas primero")
+    if not recursos:
+        raise ValueError("no hay contenido subido para las escenas")
+    por_id = {r["id"]: r for r in recursos}
+    eleccion, faltan = _por_escenas(escenas, recursos, p.get("preferir", "video"))
+    fijados = {int(k): v for k, v in (p.get("fijados") or {}).items() if v in por_id}
+    salida = []
+    for e in escenas:
+        i = e["scene_number"] - 1
+        rid, motivo = eleccion[e["scene_number"]]
+        fijado = i in fijados
+        if fijado:
+            rid, motivo = fijados[i], "fijado a mano"
+        r = por_id[rid]
+        salida.append({"i": i, "inicio": e["inicio"], "fin": e["fin"], "texto": e["narration"],
+                       "escena": e["scene_number"], "recurso": rid, "nombre": r["nombre"], "tipo": r["tipo"],
+                       "ruta": r["ruta"], "dur_recurso": r.get("duracion", 0.0), "offset": 0.0,
+                       "motivo": motivo, "fijado": fijado})
+    almacen.escribir_json(os.path.join(ctx.dir("asignacion"), "planos.json"), salida)
+    if faltan:
+        logger.warning(f"escenas sin archivo: {faltan[:30]}{'...' if len(faltan) > 30 else ''}")
+    usados = len({x["recurso"] for x in salida})
+    ctx.avisar(f"{len(salida)} escenas asignadas, {len(faltan)} sin archivo", 100)
+    return {"planos": salida, "recursos_usados": usados, "faltan": faltan}
