@@ -53,7 +53,20 @@ kie_max_concurrency = 6
 #   ernie       (文心一言)
 #   modelscope  (魔搭社区)
 #   litellm     (100+ providers via LiteLLM gateway)
+#   claude_cli  (Claude Code CLI con tu suscripcion, sin API key)
 llm_provider = "openai"
+
+########## Claude CLI Settings (llm_provider = "claude_cli")
+# Requiere Claude Code instalado y con sesion iniciada (`claude` y luego /login).
+# Usa la suscripcion; las variables ANTHROPIC_API_KEY/BASE_URL se ignoran a proposito.
+claude_cli_model = "sonnet"   # haiku | sonnet | opus | id completo claude-*
+claude_cli_effort = "low"     # low | medium | high | xhigh | max (low es ~10x mas rapido)
+claude_cli_timeout = 0        # segundos; 0 = automatico segun modelo y esfuerzo
+claude_cli_path = ""          # vacio = buscar `claude` en el PATH
+
+# Estudio: carpetas del servidor que se pueden usar como fuente de recursos.
+# Vacio = cualquiera (uso local). En un VPS, limitalo: ["/recursos"]
+estudio_carpetas_permitidas = []
 
 ########## Pollinations AI Settings
 # Visit https://pollinations.ai/ to learn more

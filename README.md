@@ -159,6 +159,45 @@ en `resource/songs`) y **Personalizada**:
 
 ---
 
+## Estudio por etapas (`estudio-ui/` + `estudio_cli.py`)
+
+App aparte, con marca propia (el nombre está en `estudio-ui/lib/marca.ts`), que usa este mismo backend como motor. En lugar de ir a Pexels o generar imágenes, trabaja con **tus recursos**: imágenes y videos mezclados, subidos, en una carpeta del servidor o como URLs. **Claude CLI** hace el trabajo de texto con tu suscripción, sin API key.
+
+```
+material → guion (Claude) → voz (TTS) ─┐
+                  recursos (Claude los mira) ─┴→ planos (Claude elige un recurso por frase) → video
+```
+
+- **Por etapas y con firma.** Cada etapa guarda la firma de sus entradas (idea tomada de AS Video Studio). Si cambias algo, solo se rehace lo que dependía de eso: otra música rehace el acabado, fijar un plano a mano rehace ese clip, y editar el guion rehace la voz y lo que viene después.
+- **Catálogo visual.** Claude mira una miniatura de cada recurso (en los videos, 3 fotogramas) y escribe una descripción que puedes corregir. Va por hash de contenido y se cachea, así que un archivo nunca se describe dos veces.
+- **Planos.** La voz se corta en planos según sus pausas, igual que en el modo local. Claude elige qué recurso va en cada plano según lo que se dice ahí. Cualquier plano se puede fijar a mano.
+- **Render rápido.** Se genera un clip por plano con ffmpeg (zoom lento en las imágenes y bucle en los videos cortos) y los clips se cachean. El acabado (subtítulos ASS, voz y música) se hace en una sola pasada de ffmpeg: ~25 s frente a ~8 min del acabado MoviePy clásico, que sigue disponible como opción.
+
+Código: `MoneyPrinterTurbo/app/services/estudio/` (una etapa por archivo, el grafo está en `grafo.py`), `app/services/claude_cli.py` y `app/controllers/v1/estudio.py` (rutas `/api/v1/estudio/*`).
+
+**Requisitos:**
+- Claude Code instalado y con sesión iniciada (`claude` y después `/login`).
+- `llm_provider` no hace falta cambiarlo: el Estudio siempre usa el CLI.
+- Un ffmpeg con libass para el acabado rápido. Los de apt/Docker y el build de gyan.dev lo traen; si no está, se usa el clásico.
+
+**Arrancar en local:**
+```bash
+cd MoneyPrinterTurbo && python main.py        # backend :8080
+cd estudio-ui && npm install && npm run dev   # estudio  :3100
+```
+
+**CLI (para Hermes, n8n o cron):**
+```bash
+python estudio_cli.py --titulo "Mundial 2026" --material-archivo notas.txt \
+    --recursos-dir ./mis_recursos --minutos 12 --out ./videos
+python estudio_cli.py --titulo "X" --guion-archivo guion.txt --recursos-dir ./media   # tu guion tal cual
+python estudio_cli.py --titulo "X" --material-archivo notas.txt --hasta guion         # parar para revisar en la web
+python estudio_cli.py --proyecto <id> --musica ""                                      # seguir o retocar: solo rehace lo cambiado
+```
+Imprime `PROYECTO=<id>` al empezar y sale con código 0 si todo va bien y 1 si falla. Usa las mismas variables `MPT_API_BASE` y `MPT_BASIC_AUTH` que `zenn_cli.py`. Hay un perfil de ejemplo en `estudio_perfil.example.json`.
+
+---
+
 ## CLI de automatización (`zenn_cli.py`)
 
 Script de línea de comandos para generar videos **sin abrir el navegador**, ideal para

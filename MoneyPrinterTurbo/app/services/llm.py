@@ -117,6 +117,11 @@ def _generate_response(prompt: str) -> str:
         content = ""
         llm_provider = config.app.get("llm_provider", "openai")
         logger.info(f"llm provider: {llm_provider}")
+        if llm_provider == "claude_cli":
+            # Suscripcion de Claude Code via `claude -p`, sin API key.
+            from app.services import claude_cli
+
+            return _normalize_text_response(claude_cli.ejecutar(prompt), llm_provider)
         if llm_provider == "g4f":
             if not config.app.get("enable_g4f", False):
                 raise ValueError(

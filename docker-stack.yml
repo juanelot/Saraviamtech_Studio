@@ -4,6 +4,7 @@ version: "3.7"
 # Las imágenes se construyen en el VPS antes de desplegar — ver DEPLOY.md:
 #   docker build -t mpt-api:latest ./MoneyPrinterTurbo
 #   docker build -t mpt-ui:latest --build-arg MPT_API_URL=http://api:8080 ./mpt-ui
+#   docker build -t estudio-ui:latest --build-arg MPT_API_URL=http://api:8080 ./estudio-ui
 
 services:
   api:
@@ -18,6 +19,15 @@ services:
       # carpeta se ocultan los MP3 por defecto de la imagen — copiar antes
       # los del repo una sola vez (ver DEPLOY.md).
       - /root/mpt-data/songs:/MoneyPrinterTurbo/resource/songs
+      # Estudio: sesion del CLI de Claude (login una vez con
+      #   docker exec -it $(docker ps -qf name=_api) claude   -> /login)
+      - /root/mpt-data/claude:/root/.claude
+      # Carpetas de recursos que el Estudio puede leer ("carpeta del servidor")
+      - /root/mpt-data/recursos:/recursos
+    environment:
+      - CLAUDE_CONFIG_DIR=/root/.claude
+      # Alternativa al login interactivo: token de `claude setup-token`
+      # - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
     deploy:
       mode: replicated
       replicas: 1
@@ -61,6 +71,32 @@ services:
         # (escapar cada $ como $$ al pegarlo aquí)
         - traefik.http.routers.virales.middlewares=virales-auth
         - traefik.http.middlewares.virales-auth.basicauth.users=admin:$$apr1$$REEMPLAZA$$CON_TU_HASH
+
+  estudio:
+    image: estudio-ui:latest
+    networks:
+      - contabo
+    environment:
+      - NODE_ENV=production
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.estudio.rule=Host(`estudio.saraviamtech.com`)
+        - traefik.http.routers.estudio.entrypoints=websecure
+        - traefik.http.routers.estudio.tls.certresolver=letsencryptresolver
+        - traefik.http.services.estudio.loadbalancer.server.port=3100
+        - traefik.http.services.estudio.loadbalancer.passHostHeader=1
+        # Misma auth basica que la web de virales (middleware definido arriba)
+        - traefik.http.routers.estudio.middlewares=virales-auth
 
 networks:
   contabo:

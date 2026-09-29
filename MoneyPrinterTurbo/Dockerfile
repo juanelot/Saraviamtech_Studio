@@ -44,6 +44,14 @@ RUN echo "deb http://mirrors.aliyun.com/debian bullseye main" > /etc/apt/sources
         done \
     ) && rm -rf /var/lib/apt/lists/*
 
+# Estudio: CLI de Claude Code (guion, catalogo visual y asignacion con la
+# suscripcion, sin API key). La sesion se persiste con CLAUDE_CONFIG_DIR en un
+# volumen, o se pasa CLAUDE_CODE_OAUTH_TOKEN (sale de `claude setup-token`).
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"
+
 # Fix security policy for ImageMagick
 RUN sed -i '/<policy domain="path" rights="none" pattern="@\*"/d' /etc/ImageMagick-6/policy.xml
 

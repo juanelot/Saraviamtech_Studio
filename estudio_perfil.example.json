@@ -1,0 +1,33 @@
+{
+  "guion": {
+    "duracion_s": 60,
+    "idioma": "es",
+    "instrucciones": "tono curioso, frases cortas, termina con una pregunta",
+    "modelo": "sonnet",
+    "esfuerzo": "low"
+  },
+  "voz": {
+    "voz": "es-MX-JorgeNeural-Male",
+    "velocidad": 1.05,
+    "plano_min_s": 2.5,
+    "plano_max_s": 6
+  },
+  "recursos": {
+    "vision": true
+  },
+  "asignacion": {
+    "modo": "claude",
+    "criterio": "usa los videos en los momentos de accion"
+  },
+  "render": {
+    "aspecto": "9:16",
+    "encaje": "desenfoque",
+    "zoom": 0.08,
+    "subtitulos": true,
+    "sub_posicion": "bottom",
+    "tam_fuente": 60,
+    "musica": "random",
+    "musica_volumen": 0.2,
+    "acabado": "rapido"
+  }
+}
