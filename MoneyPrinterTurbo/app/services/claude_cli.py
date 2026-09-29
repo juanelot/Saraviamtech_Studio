@@ -108,6 +108,17 @@ def ejecutar(prompt: str, modelo=None, esfuerzo=None, tiempo_max_s=None,
     `permitidas`: herramientas que puede usar sin pedir permiso (p. ej. ("Read",)
     para que mire miniaturas dentro de `cwd`). Lo demas queda vetado.
     """
+    return ejecutar_sobre(prompt, modelo, esfuerzo, tiempo_max_s, sistema, cwd, permitidas)[0]
+
+
+def ejecutar_sobre(prompt: str, modelo=None, esfuerzo=None, tiempo_max_s=None,
+                   sistema=None, cwd=None, permitidas=(), reglas_vetadas=(),
+                   reanudar=None):
+    """Como `ejecutar`, pero devuelve (texto, sobre JSON del CLI).
+
+    `reglas_vetadas`: reglas de permiso extra, p. ej. "Read(./config.toml)".
+    `reanudar`: session_id de una charla anterior (--resume) para seguirla.
+    """
     modelo = _modelo(modelo or config.app.get("claude_cli_model", "sonnet"))
     esfuerzo = _esfuerzo(esfuerzo or config.app.get("claude_cli_effort", "low"))
     if tiempo_max_s is None:
@@ -125,11 +136,13 @@ def ejecutar(prompt: str, modelo=None, esfuerzo=None, tiempo_max_s=None,
              "--strict-mcp-config"]
     if permitidas:
         orden += ["--allowedTools", ",".join(permitidas)]
-    vetadas = [h for h in HERRAMIENTAS_VETADAS if h not in permitidas]
+    vetadas = [h for h in HERRAMIENTAS_VETADAS if h not in permitidas] + list(reglas_vetadas)
     if vetadas:
         orden += ["--disallowedTools", ",".join(vetadas)]
     if sistema:
         orden += ["--append-system-prompt", sistema]
+    if reanudar:
+        orden += ["--resume", reanudar]
 
     logger.info(f"claude_cli: modelo={modelo} esfuerzo={esfuerzo} timeout={tiempo_max_s}s")
     proceso = subprocess.Popen(
@@ -159,7 +172,7 @@ def ejecutar(prompt: str, modelo=None, esfuerzo=None, tiempo_max_s=None,
         coste = sobre.get("total_cost_usd")
         logger.info(f"claude_cli: ok en {sobre.get('duration_ms', 0) / 1000:.1f}s"
                     + (f" (coste equivalente ${coste:.4f}, cubierto por la suscripcion)" if coste else ""))
-        return texto
+        return texto, sobre
 
     _lanzar_fallo(errores or salida or f"codigo de salida {proceso.returncode}")
 

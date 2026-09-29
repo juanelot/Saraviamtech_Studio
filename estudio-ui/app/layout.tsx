@@ -3,6 +3,7 @@ import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import { MARCA } from "@/lib/marca";
 import Barra from "@/components/Barra";
+import Asistente from "@/components/Asistente";
 
 const display = Fraunces({ subsets: ["latin"], variable: "--fuente-display", weight: ["500", "600", "700"] });
 const texto = Inter({ subsets: ["latin"], variable: "--fuente-texto" });
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen">
         <Barra />
         {children}
+        <Asistente />
       </body>
     </html>
   );

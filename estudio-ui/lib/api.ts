@@ -73,7 +73,7 @@ export interface Vista {
 
 export interface ResumenProyecto {
   id: string; titulo: string; creado: number; actualizado: number;
-  mp4: string | null; duracion: number | null; trabajando: boolean;
+  mp4: string | null; portada: string | null; duracion: number | null; trabajando: boolean;
 }
 
 const BASE = "/api/estudio";
@@ -103,6 +103,8 @@ export const api = {
   editar: (id: string, cambios: { titulo?: string; params?: Record<string, Params> }) =>
     pedir<Vista>(`/proyectos/${id}`, { method: "PATCH", ...json(cambios) }),
   borrar: (id: string) => pedir<{ ok: boolean }>(`/proyectos/${id}`, { method: "DELETE" }),
+  duplicar: (id: string, titulo?: string) =>
+    pedir<Vista>(`/proyectos/${id}/duplicar`, { method: "POST", ...json({ titulo }) }),
   ejecutar: (id: string, hasta: EtapaId, forzar: EtapaId[] = []) =>
     pedir<Vista>(`/proyectos/${id}/ejecutar`, { method: "POST", ...json({ hasta, forzar }) }),
   cancelar: (id: string) => pedir<{ cancelado: boolean }>(`/proyectos/${id}/cancelar`, { method: "POST" }),
@@ -115,6 +117,15 @@ export const api = {
   },
   quitar: (id: string, nombre: string) =>
     pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${encodeURIComponent(nombre)}`, { method: "DELETE" }),
+};
+
+export interface Turno { rol: "persona" | "asistente"; texto: string; t: number }
+export interface Charla { id: string; turnos: Turno[]; pensando: boolean; error: string | null }
+
+export const asistente = {
+  preguntar: (pregunta: string, charla?: string | null, proyecto?: string | null) =>
+    pedir<Charla>("/asistente", { method: "POST", ...json({ pregunta, charla, proyecto }) }),
+  ver: (charla: string) => pedir<Charla>(`/asistente/${charla}`),
 };
 
 export const url = {

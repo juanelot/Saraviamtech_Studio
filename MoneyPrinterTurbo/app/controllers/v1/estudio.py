@@ -12,7 +12,7 @@ from fastapi import Body, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.controllers.v1.base import new_router
-from app.services.estudio import almacen, grafo, medios, recursos
+from app.services.estudio import almacen, asistente, grafo, medios, recursos
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -42,9 +42,25 @@ def listar():
         render = (estado["etapas"].get("render") or {}).get("salida") or {}
         salida.append({"id": p["id"], "titulo": p["titulo"], "creado": p["creado"],
                        "actualizado": p["actualizado"], "mp4": render.get("mp4"),
+                       "portada": _portada(p["id"]) if render.get("mp4") else None,
                        "duracion": render.get("duracion"),
                        "trabajando": grafo.trabajo(p["id"])[0] is not None})
     return {"proyectos": salida}
+
+
+def _portada(pid):
+    """render/portada.jpg: un fotograma del video final (se crea si falta o si es vieja)."""
+    video = almacen.dir_proyecto(pid, "render", "final.mp4")
+    portada = almacen.dir_proyecto(pid, "render", "portada.jpg")
+    if not os.path.isfile(video):
+        return None
+    if not os.path.isfile(portada) or os.path.getmtime(portada) < os.path.getmtime(video):
+        try:
+            medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-ss", "1.5",
+                           "-i", video, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4", portada], timeout=60)
+        except Exception:  # noqa: BLE001
+            return None
+    return "render/portada.jpg" if os.path.isfile(portada) else None
 
 
 @router.post("/estudio/proyectos", summary="Crear proyecto")
@@ -89,6 +105,27 @@ def borrar(pid: str):
     grafo.cancelar(pid)
     shutil.rmtree(almacen.dir_proyecto(pid), ignore_errors=True)
     return {"ok": True}
+
+
+@router.post("/estudio/proyectos/{pid}/duplicar", summary="Duplicar proyecto (params + recursos subidos)")
+def duplicar(pid: str, body: dict = Body(default={})):
+    """Copia los ajustes de todas las etapas y los archivos subidos. No copia lo
+    generado: el duplicado empieza sin guion, voz ni video (se regeneran)."""
+    origen = _existe(pid)
+    nuevo = almacen.crear(body.get("titulo") or f"Copia de {origen['titulo']}")
+    params = {e: dict(v) for e, v in (origen.get("params") or {}).items()}
+    if not body.get("con_guion"):
+        params.get("guion", {}).pop("texto_manual", None)
+    params.get("asignacion", {}).pop("fijados", None)
+    nuevo["params"] = params
+    almacen.guardar(nuevo)
+    src = almacen.dir_proyecto(pid, "recursos")
+    dst = almacen.dir_proyecto(nuevo["id"], "recursos", crear=True)
+    if os.path.isdir(src):
+        for n in os.listdir(src):
+            if os.path.isfile(os.path.join(src, n)) and medios.tipo_de(n):
+                shutil.copy2(os.path.join(src, n), os.path.join(dst, n))
+    return _vista(nuevo["id"])
 
 
 @router.post("/estudio/proyectos/{pid}/ejecutar", summary="Ejecutar hasta una etapa")
@@ -195,3 +232,25 @@ def descargar(pid: str):
         raise HTTPException(404, "todavia no hay video")
     slug = re.sub(r"[^a-z0-9]+", "-", proyecto["titulo"].lower()).strip("-")[:60] or "video"
     return FileResponse(ruta, filename=f"{slug}-{pid[:6]}.mp4", media_type="video/mp4")
+
+
+# ------------------------------------------------------------------ asistente
+
+@router.post("/estudio/asistente", summary="Preguntar al asistente (Claude CLI)")
+def asistente_preguntar(body: dict = Body(...)):
+    """body: {"pregunta": str, "charla"?: id, "proyecto"?: id abierto en pantalla}."""
+    pid = body.get("proyecto") or None
+    if pid and not almacen.PATRON_ID.match(pid):
+        pid = None
+    try:
+        return asistente.preguntar(body.get("charla"), body.get("pregunta", ""), pid)
+    except asistente.ErrorAsistente as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/estudio/asistente/{cid}", summary="Estado de una charla con el asistente")
+def asistente_ver(cid: str):
+    try:
+        return asistente.ver(cid)
+    except asistente.ErrorAsistente as e:
+        raise HTTPException(404, str(e))
