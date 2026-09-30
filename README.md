@@ -205,6 +205,8 @@ material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐ 
 - **Asistente** (la burbuja de abajo a la derecha): es un chat que responde con tu cuenta de Claude. Antes de cada pregunta recibe el estado del momento (proyecto abierto, etapas, errores, registro) y puede leer el código para explicar un error. No puede leer `config.toml` ni credenciales. Está en `app/services/estudio/asistente.py`.
 - **Mis videos**: cada tarjeta tiene portada y las acciones Ver, Descargar, Editar, Duplicar, Renombrar y Borrar. Duplicar copia los ajustes y los recursos, pero no lo generado.
 
+- **Prompts maestros** (menú superior). Es una biblioteca de estilos: subes cualquier prompt maestro (.docx, .txt, .md o texto pegado) y Claude lo desglosa en una ficha. La ficha recoge los pasos y lo que pregunta cada uno, lo que entrega, el formato y la duración, si trae narración, los idiomas, los bloques fijos, las reglas clave y cómo encaja en el Estudio. Se guarda en `storage/estudio/maestros/<id>/` con el texto original intacto y, si el .docx trae una imagen de ejemplo, esa imagen como portada. Puedes renombrarlo, añadir notas, volver a desglosarlo o borrarlo. Crear contenido a partir de un estilo llegará en la siguiente fase.
+
 Código: `MoneyPrinterTurbo/app/services/estudio/` (una etapa por archivo, el grafo está en `grafo.py`), `app/services/claude_cli.py` y `app/controllers/v1/estudio.py` (rutas `/api/v1/estudio/*`).
 
 **Requisitos:**

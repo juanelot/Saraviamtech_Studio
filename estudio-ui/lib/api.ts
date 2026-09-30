@@ -218,3 +218,51 @@ export function mmss(s: number | null | undefined) {
   const r = Math.round(s % 60);
   return `${m}:${String(r).padStart(2, "0")}`;
 }
+
+// ------------------------------------------------------------------ prompts maestros
+
+export interface PasoMaestro {
+  n: number; titulo: string; que_hace: string; pregunta: string | null;
+  opciones: string[]; respuesta: string; entrega: string[];
+}
+export interface FichaMaestro {
+  nombre: string; categoria: string; resumen: string; herramientas: string[];
+  formato: { aspecto?: string; duracion_total_s?: number | null; clip_s?: number | null; escenas?: number | null; duracion_variable?: boolean };
+  narracion: { tiene: boolean; idioma?: string; como?: string };
+  idiomas?: { prompts?: string; texto_en_imagen?: string | null };
+  pasos: PasoMaestro[];
+  entregables: { tipo: string; descripcion: string; cantidad?: number | null; idioma?: string }[];
+  bloques_fijos: { nombre: string; para_que: string }[];
+  reglas_clave: string[];
+  estilo_visual: string; audio: string; negativos: string; encaje_estudio: string; advertencias: string[];
+}
+export interface Maestro {
+  id: string; nombre: string; origen: string; creado: number; actualizado: number; caracteres: number;
+  estado: "pendiente" | "listo" | "error"; error: string | null; analizando: boolean; portada: boolean;
+  ficha: FichaMaestro | null; notas: string;
+}
+export interface ResumenMaestro {
+  id: string; nombre: string; creado: number; actualizado: number; estado: Maestro["estado"]; analizando: boolean;
+  portada: boolean; resumen: string; categoria: string; formato: FichaMaestro["formato"]; narracion?: boolean;
+}
+
+export const maestros = {
+  listar: () => pedir<{ maestros: ResumenMaestro[] }>("/maestros"),
+  ver: (id: string) => pedir<Maestro>(`/maestros/${id}`),
+  subir: (archivo: File | null, texto = "", nombre = "") => {
+    const fd = new FormData();
+    if (archivo) fd.append("archivo", archivo);
+    fd.append("texto", texto);
+    fd.append("nombre", nombre);
+    return pedir<Maestro>("/maestros", { method: "POST", body: fd });
+  },
+  editar: (id: string, cambios: { nombre?: string; notas?: string }) =>
+    pedir<Maestro>(`/maestros/${id}`, { method: "PATCH", ...json(cambios) }),
+  analizar: (id: string) => pedir<Maestro>(`/maestros/${id}/analizar`, { method: "POST", ...json({}) }),
+  borrar: (id: string) => pedir<{ ok: boolean }>(`/maestros/${id}`, { method: "DELETE" }),
+  original: async (id: string) => {
+    const r = await fetch(`${BASE}/maestros/${id}/original`, { cache: "no-store" });
+    return r.text();
+  },
+  portada: (id: string, v?: number) => `${BASE}/maestros/${id}/portada${v ? `?v=${Math.round(v)}` : ""}`,
+};

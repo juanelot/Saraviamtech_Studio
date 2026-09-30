@@ -102,6 +102,10 @@ En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Vid
   una miniatura de REFERENCIA opcional (copia su estilo, no su contenido) y hasta 4
   imagenes del proyecto. La persona la genera a mano y sube la FINAL: pasa a ser la
   portada en Mis videos y se descarga. Archivos en proyectos/<id>/miniatura/.
+Prompts maestros (/maestros, maestros.py): biblioteca de estilos. Se sube un prompt maestro
+(docx/txt/md/pegado) y Claude lo desglosa en una ficha (pasos, preguntas, entregables,
+formato, narracion, bloques fijos, reglas). Guardado en storage/estudio/maestros/<id>/.
+Crear contenido desde un estilo: pendiente (fase 2).
 La pantalla (estudio-ui): inicio con "Nuevo video" y tarjetas de "Mis videos" (Ver,
 Descargar, Editar, Duplicar, Renombrar, Borrar). Dentro de un video, 8 pasos arriba:
 Material, Guion, Voz, Escenas, Contenido, Ajuste, Video, Miniatura. Boton "Todo hasta el video" (arriba a la

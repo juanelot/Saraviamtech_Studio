@@ -14,7 +14,7 @@ from fastapi import Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
-from app.services.estudio import almacen, asistente, grafo, medios, recursos, voz_clonada
+from app.services.estudio import almacen, asistente, grafo, maestros, medios, recursos, voz_clonada
 from app.services.estudio import miniatura as portada_video
 
 router = new_router()
@@ -423,3 +423,80 @@ def miniatura_descargar(pid: str):
     ruta = almacen.dir_proyecto(pid, final)
     slug = re.sub(r"[^a-z0-9]+", "-", proyecto["titulo"].lower()).strip("-")[:60] or "miniatura"
     return FileResponse(ruta, filename=f"{slug}-miniatura{os.path.splitext(ruta)[1]}")
+
+
+# ------------------------------------------------------------------ prompts maestros
+
+def _maestro(mid):
+    if not almacen.PATRON_ID.match(mid or ""):
+        raise HTTPException(404, "prompt maestro no encontrado")
+    try:
+        return maestros.cargar(mid)
+    except maestros.ErrorMaestro as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/estudio/maestros", summary="Biblioteca de prompts maestros")
+def maestros_listar():
+    return {"maestros": maestros.listar()}
+
+
+@router.post("/estudio/maestros", summary="Subir un prompt maestro (.docx/.txt/.md o texto) y desglosarlo")
+async def maestros_crear(archivo: UploadFile | None = File(None), texto: str = Form(""), nombre: str = Form(""),
+                         modelo: str = Form(""), esfuerzo: str = Form("")):
+    try:
+        if archivo is not None and archivo.filename:
+            datos = await archivo.read()
+            if len(datos) > 30 * 1024 * 1024:
+                raise HTTPException(413, "el archivo no puede pasar de 30 MB")
+            contenido, portada = maestros.extraer(archivo.filename, datos)
+            origen = archivo.filename
+            nombre = nombre or os.path.splitext(archivo.filename)[0].replace("_", " ").strip()
+        else:
+            contenido, portada, origen = texto, None, "texto pegado"
+        return maestros.crear(nombre, contenido, origen, portada, modelo or None, esfuerzo or None)
+    except maestros.ErrorMaestro as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/estudio/maestros/{mid}", summary="Ficha de un prompt maestro")
+def maestros_ver(mid: str):
+    return _maestro(mid)
+
+
+@router.get("/estudio/maestros/{mid}/original", summary="Texto original del prompt maestro")
+def maestros_original(mid: str):
+    _maestro(mid)
+    return PlainTextResponse(maestros.texto_original(mid))
+
+
+@router.get("/estudio/maestros/{mid}/portada", summary="Portada del prompt maestro")
+def maestros_portada(mid: str):
+    _maestro(mid)
+    ruta = os.path.join(almacen.raiz("maestros"), mid, "portada.jpg")
+    if not os.path.isfile(ruta):
+        raise HTTPException(404, "sin portada")
+    return FileResponse(ruta, media_type="image/jpeg")
+
+
+@router.patch("/estudio/maestros/{mid}", summary="Renombrar, notas o corregir la ficha")
+def maestros_editar(mid: str, body: dict = Body(...)):
+    _maestro(mid)
+    return maestros.editar(mid, body)
+
+
+@router.post("/estudio/maestros/{mid}/analizar", summary="Volver a desglosar con Claude")
+def maestros_analizar(mid: str, body: dict = Body(default={})):
+    _maestro(mid)
+    try:
+        maestros.analizar(mid, body.get("modelo") or None, body.get("esfuerzo") or None)
+    except maestros.ErrorMaestro as e:
+        raise HTTPException(409, str(e))
+    return maestros.cargar(mid)
+
+
+@router.delete("/estudio/maestros/{mid}", summary="Borrar un prompt maestro")
+def maestros_borrar(mid: str):
+    _maestro(mid)
+    maestros.borrar(mid)
+    return {"ok": True}
