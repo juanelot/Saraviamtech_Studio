@@ -84,6 +84,17 @@ def _fotograma(ruta, t, destino):
     return os.path.exists(destino)
 
 
+def ultimo_fotograma(ruta, destino) -> bool:
+    """PNG a resolucion completa del ULTIMO fotograma: el inicio del siguiente
+    clip en segmentos encadenados. Se decodifica el ultimo segundo y `-update 1`
+    se queda con el ultimo cuadro (con -sseof justo al final a veces no sale nada)."""
+    if os.path.exists(destino):
+        os.remove(destino)
+    correr([ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-sseof", "-1", "-i", ruta,
+            "-update", "1", destino], timeout=180)
+    return os.path.isfile(destino) and os.path.getsize(destino) > 0
+
+
 def miniatura(ruta, destino, info=None) -> bool:
     """JPG de 512 px. Videos: hoja de 3 fotogramas (inicio, medio, final)."""
     if os.path.exists(destino):

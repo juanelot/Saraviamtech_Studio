@@ -4,14 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Bot, CheckCircle2, Clapperboard, Download, FileText, Image as Imagen, Loader2, Merge, Pause, Play, RefreshCw, Send,
-  Sparkles, Star, Trash2, Video, X,
+  ArrowLeft, Bot, CheckCircle2, Clapperboard, Download, FileText, Image as Imagen, Link2, Loader2, Merge, Pause, Play,
+  RefreshCw, Send, Sparkles, Star, Trash2, Upload, Video, X,
 } from "lucide-react";
 import { AvisoError, Tarjeta } from "./ui";
 import TextoRico from "./TextoRico";
 import { Copiar } from "./paneles/PanelEscenas";
 import {
-  creaciones, maestros, type Creacion, type EscenaEntregable, type Entregables, type FichaMaestro, type Narracion,
+  creaciones, maestros, ultimoFotograma, type Creacion, type EscenaEntregable, type Entregables, type FichaMaestro,
+  type Narracion, type Referencia,
 } from "@/lib/api";
 
 export default function CreacionMaestro({ id, cid }: { id: string; cid: string }) {
@@ -190,7 +191,7 @@ export default function CreacionMaestro({ id, cid }: { id: string; cid: string }
           {c.entregables && c.entregables.escenas.length > 0 && (
             <CrearVideo c={c} mid={id} ficha={ficha} ocupado={ocupado || enviando} />
           )}
-          <PanelEntregables c={c} ocupado={ocupado || enviando}
+          <PanelEntregables c={c} mid={id} ocupado={ocupado || enviando} accion={accion}
             onPreparar={() => accion(() => creaciones.entregables(id, cid))}
             onEscenas={(escenas) => accion(() => creaciones.escenas(id, cid, escenas))} />
         </aside>
@@ -312,11 +313,15 @@ function unir(a: EscenaEntregable, b: EscenaEntregable): EscenaEntregable {
   return {
     n: a.n, narracion: [a.narracion, b.narracion].filter(Boolean).join(" ") || null,
     imagen: juntar(a.imagen, b.imagen), video: juntar(a.video, b.video), duracion_s: duracion ?? null,
+    continua: a.continua, refs: [...new Set([...(a.refs || []), ...(b.refs || [])])],
   };
 }
 
-function PanelEntregables({ c, ocupado, onPreparar, onEscenas }: {
-  c: Creacion; ocupado: boolean; onPreparar: () => void; onEscenas: (escenas: EscenaEntregable[]) => void;
+type Accion = (f: () => Promise<Creacion>) => Promise<void>;
+
+function PanelEntregables({ c, mid, ocupado, accion, onPreparar, onEscenas }: {
+  c: Creacion; mid: string; ocupado: boolean; accion: Accion; onPreparar: () => void;
+  onEscenas: (escenas: EscenaEntregable[]) => void;
 }) {
   const e = c.entregables;
   const hayRespuestas = c.turnos.some((t) => t.rol === "claude");
@@ -352,6 +357,8 @@ function PanelEntregables({ c, ocupado, onPreparar, onEscenas }: {
               <p className="whitespace-pre-wrap text-tinta-2">{e.guion}</p>
             </Bloque>
           )}
+
+          {e.escenas.length > 0 && <PanelReferencias c={c} mid={mid} ocupado={ocupado} accion={accion} />}
 
           {e.escenas.length > 0 && (
             <div>
@@ -395,6 +402,19 @@ function PanelEntregables({ c, ocupado, onPreparar, onEscenas }: {
                           </span>
                         </span>
                         {s.narracion && <span className="mt-0.5 line-clamp-2 block text-tinta-2">{s.narracion}</span>}
+                        {(s.continua || !!s.refs?.length) && (
+                          <span className="mt-1.5 flex flex-wrap gap-1">
+                            {s.continua && (
+                              <span className="flex items-center gap-1 rounded-full bg-acento-suave px-2 py-0.5 text-[11px] font-semibold text-acento"
+                                title="Crea este clip empezando por el ultimo fotograma del clip anterior">
+                                <Link2 size={10} /> sigue a la escena {e.escenas[k - 1]?.n}
+                              </span>
+                            )}
+                            {s.refs?.map((r) => (
+                              <span key={r} className="rounded-full border border-linea px-2 py-0.5 text-[11px] text-tinta-2">{r}</span>
+                            ))}
+                          </span>
+                        )}
                       </summary>
                       <div className="mt-2 space-y-2">
                         {s.imagen && <Prompt icono={<Imagen size={12} />} titulo="Imagen" texto={s.imagen} />}
@@ -404,6 +424,7 @@ function PanelEntregables({ c, ocupado, onPreparar, onEscenas }: {
                   </li>
                 ))}
               </ol>
+              <UltimoFotograma destacado={e.escenas.some((s) => s.continua)} />
             </div>
           )}
 
@@ -433,6 +454,134 @@ function PanelEntregables({ c, ocupado, onPreparar, onEscenas }: {
         </div>
       )}
     </Tarjeta>
+  );
+}
+
+const TIPOS_REF: Record<Referencia["tipo"], string> = {
+  personaje: "Personaje", vehiculo: "Vehiculo", objeto: "Objeto", lugar: "Lugar", estilo: "Estilo", otro: "Referencia",
+};
+
+function PanelReferencias({ c, mid, ocupado, accion }: { c: Creacion; mid: string; ocupado: boolean; accion: Accion }) {
+  const refs = c.entregables?.referencias || [];
+  const [proponiendo, setProponiendo] = useState(false);
+  const [subiendo, setSubiendo] = useState<string | null>(null);
+
+  async function proponer() {
+    setProponiendo(true);
+    await accion(() => creaciones.proponerReferencias(mid, c.id));
+    setProponiendo(false);
+  }
+
+  async function subir(r: Referencia, archivo: File | undefined) {
+    if (!archivo) return;
+    setSubiendo(r.clave);
+    await accion(() => creaciones.subirReferencia(mid, c.id, r.clave, archivo));
+    setSubiendo(null);
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="etiqueta">Hojas de referencia</p>
+        <button className="boton boton-linea !gap-1 !px-2.5 !py-1 text-xs" disabled={ocupado || proponiendo} onClick={proponer}
+          title="Claude busca personajes, objetos y lugares que se repiten entre escenas y escribe su hoja">
+          {proponiendo ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          {proponiendo ? "Claude lee las escenas…" : refs.length ? "Proponer mas" : "Proponer con Claude"}
+        </button>
+      </div>
+      {!refs.length ? (
+        <p className="text-xs text-tinta-3">
+          Crea primero una imagen de cada personaje, vehiculo o lugar que se repite y adjuntala como ingrediente en cada
+          clip de Flow: asi sale igual en todas las escenas.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {refs.map((r) => (
+            <li key={r.clave} className="rounded-xl border border-linea bg-hundido/40 p-2">
+              <div className="flex gap-2.5">
+                <label className={`relative flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-linea bg-tarjeta text-tinta-3 hover:border-acento ${ocupado ? "pointer-events-none opacity-60" : ""}`}
+                  title={r.imagen ? "Cambiar la imagen" : "Subir la imagen que creaste"}>
+                  {subiendo === r.clave ? <Loader2 size={16} className="animate-spin" />
+                    // eslint-disable-next-line @next/next/no-img-element
+                    : r.imagen ? <img src={creaciones.urlReferencia(mid, c.id, r)} alt={r.nombre} className="h-full w-full object-cover" />
+                    : <Upload size={16} />}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                    onChange={(ev) => { subir(r, ev.target.files?.[0]); ev.target.value = ""; }} />
+                </label>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate font-semibold">{r.nombre}</span>
+                    <span className="text-xs text-tinta-3">· {TIPOS_REF[r.tipo]}</span>
+                    {r.origen === "claude" && <span title="Propuesta por Claude"><Sparkles size={11} className="text-acento" /></span>}
+                    <span className="ml-auto flex gap-0.5">
+                      {r.imagen && (
+                        <a className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-tinta" title="Descargar la imagen"
+                          href={creaciones.urlReferencia(mid, c.id, r)} download={r.archivo || r.imagen}><Download size={13} /></a>
+                      )}
+                      <button className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-red-500" disabled={ocupado}
+                        title="Quitar esta referencia"
+                        onClick={() => {
+                          if (confirm(`¿Quitar la referencia "${r.nombre}"?`))
+                            accion(() => creaciones.referencias(mid, c.id, refs.filter((x) => x.clave !== r.clave)));
+                        }}><X size={13} /></button>
+                    </span>
+                  </div>
+                  <p className="text-xs text-tinta-3">
+                    {r.imagen ? "Imagen lista" : "Falta la imagen"}{r.archivo ? ` · guardala como ${r.archivo}` : ""}
+                  </p>
+                </div>
+              </div>
+              {r.prompt && (
+                <details className="mt-1.5">
+                  <summary className="cursor-pointer text-xs text-tinta-2">Prompt de la hoja</summary>
+                  <div className="mt-1.5"><Prompt titulo="Prompt" texto={r.prompt} /></div>
+                </details>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function UltimoFotograma({ destacado }: { destacado: boolean }) {
+  const [trabajando, setTrabajando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function sacar(archivo: File | undefined) {
+    if (!archivo) return;
+    setTrabajando(true);
+    setError(null);
+    try {
+      const blob = await ultimoFotograma(archivo);
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = `${archivo.name.replace(/\.[^.]+$/, "")}-ultimo-fotograma.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(u), 1000);
+    } catch (err) {
+      setError(String((err as Error).message || err));
+    } finally {
+      setTrabajando(false);
+    }
+  }
+
+  return (
+    <div className={`mt-3 rounded-xl border px-3 py-2 text-xs ${destacado ? "border-acento/50 bg-acento-suave" : "border-linea"}`}>
+      <label className={`flex cursor-pointer items-center gap-2 ${trabajando ? "pointer-events-none opacity-70" : ""}`}>
+        {trabajando ? <Loader2 size={14} className="animate-spin text-acento" /> : <Link2 size={14} className="text-acento" />}
+        <span>
+          <span className="font-semibold">Ultimo fotograma</span>
+          <span className="block text-tinta-2">
+            Elige el clip que acabas de crear y descarga su ultimo fotograma (PNG) para empezar el siguiente con el.
+          </span>
+        </span>
+        <input type="file" accept="video/*" hidden onChange={(ev) => { sacar(ev.target.files?.[0]); ev.target.value = ""; }} />
+      </label>
+      <AvisoError texto={error} />
+    </div>
   );
 }
 

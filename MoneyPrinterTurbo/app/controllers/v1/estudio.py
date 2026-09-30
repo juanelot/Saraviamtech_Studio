@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import zipfile
 
 from fastapi import Body, File, Form, HTTPException, Query, UploadFile
@@ -15,7 +16,8 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
 from app.services import claude_cli
-from app.services.estudio import almacen, asistente, creaciones, grafo, maestros, medios, recursos, voz_clonada
+from app.services.estudio import (almacen, asistente, creaciones, grafo, maestros, medios, recursos, referencias,
+                                  voz_clonada)
 from app.services.estudio import miniatura as portada_video
 
 router = new_router()
@@ -304,6 +306,40 @@ def original(pid: str, h: str):
     raise HTTPException(404, "recurso no encontrado")
 
 
+def _png_ultimo(ruta, nombre):
+    with tempfile.TemporaryDirectory() as tmp:
+        destino = os.path.join(tmp, "ultimo.png")
+        if not medios.ultimo_fotograma(ruta, destino):
+            raise HTTPException(422, "no se pudo leer el ultimo fotograma de ese video")
+        with open(destino, "rb") as f:
+            datos = f.read()
+    base = re.sub(r"[^A-Za-z0-9_-]+", "-", os.path.splitext(nombre)[0]).strip("-")[:60] or "clip"
+    return Response(datos, media_type="image/png",
+                    headers={"Content-Disposition": f'attachment; filename="{base}-ultimo-fotograma.png"'})
+
+
+@router.get("/estudio/proyectos/{pid}/original/{h}/ultimo-fotograma", summary="Ultimo fotograma de un video subido")
+def original_ultimo(pid: str, h: str):
+    _, _, etapas = grafo.evaluar(_existe(pid)["id"])
+    for r in ((etapas["recursos"]["salida"] or {}).get("recursos") or []):
+        if r["id"] == h and os.path.isfile(r["ruta"]) and r["tipo"] == "video":
+            return _png_ultimo(r["ruta"], r["nombre"])
+    raise HTTPException(404, "video no encontrado")
+
+
+@router.post("/estudio/herramientas/ultimo-fotograma", summary="Ultimo fotograma de un clip (segmentos encadenados)")
+async def herramienta_ultimo(archivo: UploadFile = File(...)):
+    ext = os.path.splitext(archivo.filename or "")[1].lower()
+    if ext not in medios.EXT_VIDEO:
+        raise HTTPException(400, "sube un video (mp4, mov, webm...)")
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta = os.path.join(tmp, "clip" + ext)
+        with open(ruta, "wb") as f:
+            while bloque := await archivo.read(1 << 20):
+                f.write(bloque)
+        return _png_ultimo(ruta, archivo.filename)
+
+
 @router.get("/estudio/proyectos/{pid}/descargar", summary="Descargar el MP4 final")
 def descargar(pid: str):
     proyecto = _existe(pid)
@@ -587,6 +623,53 @@ def creaciones_escenas(mid: str, cid: str, body: dict = Body(...)):
         return creaciones.editar_escenas(mid, cid, body.get("escenas"))
     except creaciones.ErrorCreacion as e:
         raise HTTPException(400, str(e))
+
+
+@router.put("/estudio/maestros/{mid}/creaciones/{cid}/referencias", summary="Quitar referencias o corregir su prompt")
+def creaciones_referencias(mid: str, cid: str, body: dict = Body(...)):
+    _creacion(mid, cid)
+    try:
+        return creaciones.editar_referencias(mid, cid, body.get("referencias"))
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/estudio/maestros/{mid}/creaciones/{cid}/referencias/proponer", summary="Claude propone hojas de referencia")
+def creaciones_proponer_referencias(mid: str, cid: str):
+    _creacion(mid, cid)
+    try:
+        return creaciones.proponer_referencias(mid, cid)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(400, str(e))
+    except claude_cli.LimiteAgotado as e:
+        raise HTTPException(429, str(e))
+
+
+@router.get("/estudio/maestros/{mid}/creaciones/{cid}/referencias/{k}", summary="Imagen de una hoja de referencia")
+def creaciones_ver_referencia(mid: str, cid: str, k: str):
+    _creacion(mid, cid)
+    ruta = referencias.ruta_imagen(mid, cid, referencias.clave(k))
+    if not ruta:
+        raise HTTPException(404, "sin imagen")
+    return FileResponse(ruta, filename=os.path.basename(ruta))
+
+
+@router.post("/estudio/maestros/{mid}/creaciones/{cid}/referencias/{k}", summary="Subir la imagen de una referencia")
+async def creaciones_subir_referencia(mid: str, cid: str, k: str, archivo: UploadFile = File(...)):
+    _creacion(mid, cid)
+    datos = await archivo.read()
+    if len(datos) > 30 * 1024 * 1024:
+        raise HTTPException(413, "la imagen no puede pasar de 30 MB")
+    try:
+        return creaciones.subir_referencia(mid, cid, referencias.clave(k), datos)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/estudio/maestros/{mid}/creaciones/{cid}/referencias/{k}", summary="Quitar la imagen de una referencia")
+def creaciones_quitar_referencia(mid: str, cid: str, k: str):
+    _creacion(mid, cid)
+    return creaciones.quitar_referencia(mid, cid, k)
 
 
 @router.post("/estudio/maestros/{mid}/creaciones/{cid}/video", summary="Crear un proyecto del Estudio con la creacion")

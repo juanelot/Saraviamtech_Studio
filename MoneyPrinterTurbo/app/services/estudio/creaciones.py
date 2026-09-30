@@ -27,6 +27,7 @@ escenas FIJAS con sus prompts, asignacion por escenas, formato). La narracion:
 import json
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -34,7 +35,7 @@ import uuid
 from loguru import logger
 
 from app.services import claude_cli
-from app.services.estudio import almacen, maestros
+from app.services.estudio import almacen, maestros, referencias
 
 MODELOS = ("sonnet", "opus")
 TIEMPO_MAX_S = 1500
@@ -89,6 +90,13 @@ solo las que el chat planteo como partes del video; puede ser UNA sola (un reel 
 Una imagen que sirve para CREAR un video (storyboard, fotograma inicial o final, referencia,
 hoja de personaje) NO es otra escena: va en "imagen" de la MISMA escena que ese video.
 Si un prompt dice su duracion ("10-second video", "8 s"), ponla en duracion_s.
+"continua" es true si el chat pide que ese clip EMPIECE desde el ultimo fotograma del clip
+anterior (segmentos encadenados, extender el clip anterior).
+
+REFERENCIAS: hojas o imagenes que el chat pide crear ANTES de las escenas para que un
+personaje, vehiculo, objeto o lugar salga igual en todas (reference sheet, character sheet,
+character.png...). No son escenas. En "refs" de cada escena pon los nombres de las
+referencias que esa escena usa. Los bloques de texto fijo (CHARACTER BLOCK...) van en bloques.
 
 <<<CHAT>>>
 {charla}
@@ -100,7 +108,11 @@ Responde SOLO con JSON valido:
   "guion": "la narracion completa lista para locutar (solo el texto que se dice), o null si no hay",
   "escenas": [{{"n": 1, "narracion": "texto que se dice en esta escena o null",
                "imagen": "prompt de imagen completo o null", "video": "prompt de video/animacion completo o null",
-               "duracion_s": segundos o null}}],
+               "duracion_s": segundos o null, "continua": false, "refs": ["nombres de referencias que usa"]}}],
+  "referencias": [{{"nombre": "nombre corto (protagonista, vehiculo...)",
+                    "tipo": "personaje | vehiculo | objeto | lugar | estilo | otro",
+                    "prompt": "prompt completo de la hoja de referencia",
+                    "archivo": "nombre de archivo que indica el chat (ej. character.png) o null"}}],
   "miniaturas": ["prompts de miniatura completos"],
   "bloques": [{{"titulo": "nombre (ej. CHARACTER BLOCK, ajustes de voz, lista de ideas...)", "texto": "contenido completo"}}]
 }}"""
@@ -137,11 +149,17 @@ def cargar(mid, cid):
     c["pensando"] = cid in _activas
     # Videos creados que la persona ya borro de "Mis videos": fuera de la lista.
     c["proyectos"] = [p for p in c.get("proyectos") or [] if os.path.isdir(almacen.dir_proyecto(p["id"]))]
+    if c.get("entregables"):
+        c["entregables"].setdefault("referencias", [])
+        referencias.con_imagenes(mid, cid, c["entregables"]["referencias"])
     return c
 
 
 def _guardar(mid, c):
     c = {k: v for k, v in c.items() if k != "pensando"}
+    if c.get("entregables"):
+        # `imagen` y `clave` de las referencias se calculan al cargar (ver referencias.con_imagenes).
+        c["entregables"] = {**c["entregables"], "referencias": referencias.limpiar(c["entregables"].get("referencias"))}
     c["actualizado"] = time.time()
     almacen.escribir_json(_ruta(mid, c["id"]), c)
 
@@ -227,6 +245,7 @@ def borrar(mid, cid):
     ruta = _ruta(mid, cid)
     if os.path.isfile(ruta):
         os.remove(ruta)
+    shutil.rmtree(os.path.join(_dir(mid), almacen.validar_id(cid)), ignore_errors=True)
 
 
 # ------------------------------------------------------------------ turnos
@@ -546,6 +565,71 @@ def editar_escenas(mid, cid, escenas):
     return cargar(mid, cid)
 
 
+# ------------------------------------------------------------------ hojas de referencia
+
+def editar_referencias(mid, cid, lista):
+    """La persona quita referencias o corrige su prompt (el nombre es la clave
+    de la imagen: no se renombra). Las quitadas pierden su imagen."""
+    with almacen.candado(f"creacion-{cid}"):
+        c = cargar(mid, cid)
+        if not c.get("entregables"):
+            raise ErrorCreacion("todavia no hay entregables")
+        antes = {r["clave"] for r in c["entregables"]["referencias"]}
+        nuevas = referencias.limpiar(lista)
+        quedan = {referencias.clave(r["nombre"]) for r in nuevas}
+        for k in antes - quedan:
+            referencias.quitar_imagen(mid, cid, k)
+        for s in c["entregables"]["escenas"]:
+            s["refs"] = [x for x in s.get("refs") or [] if referencias.clave(x) in quedan]
+        c["entregables"]["referencias"] = nuevas
+        _guardar(mid, c)
+    return cargar(mid, cid)
+
+
+def proponer_referencias(mid, cid):
+    """Claude propone hojas de referencia para los sujetos que se repiten."""
+    c = cargar(mid, cid)
+    e = c.get("entregables") or {}
+    if not e.get("escenas"):
+        raise ErrorCreacion("primero prepara los entregables: hacen falta las escenas")
+    ficha = maestros.cargar(mid).get("ficha") or {}
+    idioma = str((ficha.get("idiomas") or {}).get("prompts") or "en").split("-")[0].lower()[:2]
+    try:
+        nuevas, usos = referencias.proponer(e["escenas"], [r["nombre"] for r in e["referencias"]], idioma,
+                                            c.get("modelo") or "sonnet")
+    except referencias.ErrorReferencia as err:
+        raise ErrorCreacion(str(err)) from err
+    if not nuevas:
+        raise ErrorCreacion("Claude no ve personajes, objetos ni lugares que se repitan entre escenas")
+    with almacen.candado(f"creacion-{cid}"):
+        c = cargar(mid, cid)
+        e = c["entregables"]
+        e["referencias"] = referencias.limpiar(e["referencias"] + nuevas)
+        validas = {referencias.clave(r["nombre"]) for r in e["referencias"]}
+        for s in e["escenas"]:
+            extra = [x for x in usos.get(s["n"], []) if referencias.clave(x) in validas]
+            s["refs"] = list(dict.fromkeys((s.get("refs") or []) + extra))
+        _guardar(mid, c)
+    return cargar(mid, cid)
+
+
+def subir_referencia(mid, cid, k, datos):
+    c = cargar(mid, cid)
+    ref = next((r for r in (c.get("entregables") or {}).get("referencias") or [] if r["clave"] == k), None)
+    if not ref:
+        raise ErrorCreacion("referencia no encontrada")
+    try:
+        referencias.guardar_imagen(mid, cid, ref["nombre"], datos)
+    except referencias.ErrorReferencia as err:
+        raise ErrorCreacion(str(err)) from err
+    return cargar(mid, cid)
+
+
+def quitar_referencia(mid, cid, k):
+    referencias.quitar_imagen(mid, cid, referencias.clave(k))
+    return cargar(mid, cid)
+
+
 def _texto(v):
     return str(v).strip() if isinstance(v, (str, int, float)) and str(v).strip() else None
 
@@ -561,11 +645,15 @@ def _limpiar_entregables(d):
             dur = None
         escenas.append({"n": int(e.get("n") or k) if str(e.get("n") or "").isdigit() else k,
                         "narracion": _texto(e.get("narracion")), "imagen": _texto(e.get("imagen")),
-                        "video": _texto(e.get("video")), "duracion_s": dur})
+                        "video": _texto(e.get("video")), "duracion_s": dur,
+                        "continua": e.get("continua") is True and k > 1,
+                        "refs": list(dict.fromkeys(str(r).strip()[:60] for r in e.get("refs") or []
+                                                   if isinstance(r, str) and r.strip()))})
     return {
         "titulo": _texto(d.get("titulo")) or "",
         "guion": _texto(d.get("guion")),
         "escenas": escenas,
+        "referencias": referencias.limpiar(d.get("referencias")),
         "miniaturas": [x for x in (_texto(m) for m in d.get("miniaturas") or []) if x],
         "bloques": [{"titulo": _texto(b.get("titulo")) or "Bloque", "texto": _texto(b.get("texto"))}
                     for b in d.get("bloques") or [] if isinstance(b, dict) and _texto(b.get("texto"))],

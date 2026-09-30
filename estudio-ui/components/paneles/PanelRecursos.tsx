@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eye, Film, FolderOpen, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { Eye, Film, FolderOpen, ImageIcon, Link2, Loader2, Trash2, Upload } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Tarjeta } from "../ui";
 import { api, mini, url, type Recurso, type Subido } from "@/lib/api";
@@ -109,11 +109,19 @@ export default function PanelRecursos({ id, vista, p, set, ejecutar, ocupado, re
             {escena != null ? `Escena ${escena}` : "sin numero"}
           </span>
         )}
-        {borrar && (
-          <button onClick={borrar} title="Quitar" className="absolute right-2 top-2 rounded-md bg-black/65 p-1 text-white hover:bg-error">
-            <Trash2 size={13} />
-          </button>
-        )}
+        <span className="absolute right-2 top-2 flex gap-1">
+          {tipo === "video" && cat && (
+            <a href={url.ultimoFotograma(id, cat.id)} title="Descargar el ultimo fotograma (para encadenar el siguiente clip)"
+              className="rounded-md bg-black/65 p-1 text-white hover:bg-acento">
+              <Link2 size={13} />
+            </a>
+          )}
+          {borrar && (
+            <button onClick={borrar} title="Quitar" className="rounded-md bg-black/65 p-1 text-white hover:bg-error">
+              <Trash2 size={13} />
+            </button>
+          )}
+        </span>
       </div>
       <div className="p-2.5">
         <p className="truncate text-xs font-medium" title={nombre}>{nombre}</p>

@@ -195,12 +195,28 @@ export const url = {
     `${BASE}/proyectos/${id}/archivo/${ruta}${v ? `?v=${Math.round(v)}` : ""}`,
   miniatura: (h: string) => `${BASE}/miniatura/${h}`,
   original: (id: string, h: string) => `${BASE}/proyectos/${id}/original/${h}`,
+  ultimoFotograma: (id: string, h: string) => `${BASE}/proyectos/${id}/original/${h}/ultimo-fotograma`,
   descargar: (id: string) => `${BASE}/proyectos/${id}/descargar`,
   scriptJson: (id: string) => `${BASE}/proyectos/${id}/script.json`,
   promptsTxt: (id: string) => `${BASE}/proyectos/${id}/prompts.txt`,
   muestraClonada: (vid: string) => `${BASE}/voces-clonadas/${vid}/audio`,
   descargarMiniatura: (id: string) => `${BASE}/proyectos/${id}/miniatura-descargar`,
 };
+
+/** Ultimo fotograma de un clip (PNG) para empezar el siguiente segmento encadenado. */
+export async function ultimoFotograma(archivo: File): Promise<Blob> {
+  const fd = new FormData();
+  fd.append("archivo", archivo);
+  const r = await fetch(`${BASE}/herramientas/ultimo-fotograma`, { method: "POST", body: fd });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try {
+      msg = (await r.json()).detail || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return r.blob();
+}
 
 export async function listarMusica(): Promise<string[]> {
   try {
@@ -275,10 +291,17 @@ export const maestros = {
 
 export interface AppTurno { tipo: "texto" | "opcion" | "fin"; opciones: string[]; recomendada: string }
 export interface TurnoCreacion { rol: "persona" | "claude"; texto: string; t: number; auto?: boolean; app?: AppTurno }
-export interface EscenaEntregable { n: number; narracion: string | null; imagen: string | null; video: string | null; duracion_s: number | null }
+export interface EscenaEntregable {
+  n: number; narracion: string | null; imagen: string | null; video: string | null; duracion_s: number | null;
+  continua?: boolean; refs?: string[];
+}
+export interface Referencia {
+  nombre: string; clave: string; tipo: "personaje" | "vehiculo" | "objeto" | "lugar" | "estilo" | "otro";
+  prompt: string | null; archivo: string | null; origen: "maestro" | "claude"; imagen: string | null;
+}
 export interface Entregables {
   titulo: string; guion: string | null; escenas: EscenaEntregable[]; miniaturas: string[];
-  bloques: { titulo: string; texto: string }[];
+  bloques: { titulo: string; texto: string }[]; referencias?: Referencia[];
 }
 export interface Creacion {
   id: string; maestro: string; titulo: string; tema: string; modo: "guiado" | "auto"; modelo: string;
@@ -306,6 +329,19 @@ export const creaciones = {
   borrar: (mid: string, cid: string) => pedir<{ ok: boolean }>(`/maestros/${mid}/creaciones/${cid}`, { method: "DELETE" }),
   escenas: (mid: string, cid: string, escenas: EscenaEntregable[]) =>
     pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/escenas`, { method: "PUT", ...json({ escenas }) }),
+  referencias: (mid: string, cid: string, referencias: Referencia[]) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/referencias`, { method: "PUT", ...json({ referencias }) }),
+  proponerReferencias: (mid: string, cid: string) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/referencias/proponer`, { method: "POST" }),
+  subirReferencia: (mid: string, cid: string, clave: string, archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/referencias/${clave}`, { method: "POST", body: fd });
+  },
+  quitarReferencia: (mid: string, cid: string, clave: string) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/referencias/${clave}`, { method: "DELETE" }),
+  urlReferencia: (mid: string, cid: string, r: Referencia) =>
+    `${BASE}/maestros/${mid}/creaciones/${cid}/referencias/${r.clave}?v=${encodeURIComponent(r.imagen || "")}`,
   video: (mid: string, cid: string, datos: { narracion: Narracion; aspecto: string; titulo?: string }) =>
     pedir<{ proyecto: { id: string; titulo: string } }>(`/maestros/${mid}/creaciones/${cid}/video`, { method: "POST", ...json(datos) }),
 };
