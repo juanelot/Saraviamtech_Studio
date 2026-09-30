@@ -89,9 +89,14 @@ En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Vid
   cambian los planos, los recursos/descripciones, el criterio o el modelo.
 - Video (render): un clip por plano con ffmpeg (cacheado) y acabado rapido con ffmpeg
   (subtitulos ASS + voz + musica) o clasico MPT (MoviePy, lento).
+- Miniatura (fuera del grafo, usable en cualquier momento): Claude propone conceptos con
+  prompt para Flow (con o sin texto en la imagen) a partir del guion, el estilo de Escenas,
+  una miniatura de REFERENCIA opcional (copia su estilo, no su contenido) y hasta 4
+  imagenes del proyecto. La persona la genera a mano y sube la FINAL: pasa a ser la
+  portada en Mis videos y se descarga. Archivos en proyectos/<id>/miniatura/.
 La pantalla (estudio-ui): inicio con "Nuevo video" y tarjetas de "Mis videos" (Ver,
-Descargar, Editar, Duplicar, Renombrar, Borrar). Dentro de un video, 6 pasos arriba:
-Material, Guion, Voz, Recursos, Planos, Video. Boton "Todo hasta el video" (arriba a la
+Descargar, Editar, Duplicar, Renombrar, Borrar). Dentro de un video, 8 pasos arriba:
+Material, Guion, Voz, Escenas, Contenido, Ajuste, Video, Miniatura. Boton "Todo hasta el video" (arriba a la
 derecha) ejecuta todo lo pendiente. La barra de abajo tiene el boton principal del paso
 (Escribir guion -> Generar voz -> Elegir recursos -> Asignar planos -> Montar video),
 "Registro" (log) y, mientras trabaja, progreso y "Cancelar". Cada paso tiene ademas su

@@ -1,6 +1,7 @@
 "use client";
 
 import type { PanelProps } from "../Proyecto";
+import { ImageIcon } from "lucide-react";
 import { Campo, Segmentado, Tarjeta } from "../ui";
 import { mmss } from "@/lib/api";
 
@@ -18,7 +19,7 @@ export const ESFUERZOS = [
 const DURACIONES = [30, 45, 60, 90, 120, 180, 300, 480, 600, 720, 900, 1200, 1800, 2700, 3600];
 const MAX_MIN = 180;
 
-export default function PanelMaterial({ p, set }: PanelProps) {
+export default function PanelMaterial({ p, set, irA }: PanelProps) {
   const g = p("guion");
   const modo = (g.modo as string) || "redactar";
   const dur = Number(g.duracion_s) || 60;
@@ -106,6 +107,14 @@ export default function PanelMaterial({ p, set }: PanelProps) {
             <p className="mt-3 text-xs text-tinta-3">Usa tu suscripcion de Claude (CLI), sin API key.</p>
           </Tarjeta>
         )}
+        <button type="button" onClick={() => irA("miniatura")}
+          className="flex w-full items-start gap-3 rounded-2xl border border-dashed border-linea p-4 text-left transition hover:border-acento">
+          <ImageIcon size={18} className="mt-0.5 shrink-0 text-acento" />
+          <span className="text-sm">
+            <b>¿Ya tienes la miniatura, o una de referencia?</b>
+            <span className="mt-0.5 block text-tinta-2">Subela ahora en el paso Miniatura. Si no, al final Claude te propone conceptos y prompts.</span>
+          </span>
+        </button>
       </div>
     </div>
   );

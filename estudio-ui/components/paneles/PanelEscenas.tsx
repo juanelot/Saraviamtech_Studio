@@ -7,7 +7,7 @@ import { AvisoError, Campo, Deslizador, Segmentado, Tarjeta } from "../ui";
 import { mmss, url, type Escena } from "@/lib/api";
 import { ESFUERZOS, MODELOS } from "./PanelMaterial";
 
-function Copiar({ texto, etiqueta = "Copiar" }: { texto: string; etiqueta?: string }) {
+export function Copiar({ texto, etiqueta = "Copiar" }: { texto: string; etiqueta?: string }) {
   const [hecho, setHecho] = useState(false);
   return (
     <button

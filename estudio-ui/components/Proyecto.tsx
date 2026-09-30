@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, Loader2, Play, X, ChevronDown, ChevronUp } from "lucide-react";
-import { api, type EtapaId, type EstadoEtapa, type Params, type Vista } from "@/lib/api";
+import { api, miniatura, type EtapaId, type EstadoEtapa, type Params, type Vista } from "@/lib/api";
 import { ChipEstado } from "./ui";
 import PanelMaterial from "./paneles/PanelMaterial";
 import PanelGuion from "./paneles/PanelGuion";
@@ -12,6 +12,7 @@ import PanelEscenas from "./paneles/PanelEscenas";
 import PanelRecursos from "./paneles/PanelRecursos";
 import PanelAsignacion from "./paneles/PanelAsignacion";
 import PanelVideo from "./paneles/PanelVideo";
+import PanelMiniatura from "./paneles/PanelMiniatura";
 
 export interface PanelProps {
   id: string;
@@ -21,9 +22,10 @@ export interface PanelProps {
   ejecutar: (hasta: EtapaId, forzar?: EtapaId[]) => Promise<void>;
   ocupado: boolean;
   recargar: () => Promise<void>;
+  irA: (parada: ParadaId) => void;
 }
 
-type ParadaId = "material" | "guion" | "voz" | "escenas" | "recursos" | "asignacion" | "video";
+export type ParadaId = "material" | "guion" | "voz" | "escenas" | "recursos" | "asignacion" | "video" | "miniatura";
 
 const PARADAS: { id: ParadaId; etapa: EtapaId; titulo: string; sub: string }[] = [
   { id: "material", etapa: "guion", titulo: "Material", sub: "De que trata" },
@@ -33,6 +35,8 @@ const PARADAS: { id: ParadaId; etapa: EtapaId; titulo: string; sub: string }[] =
   { id: "recursos", etapa: "recursos", titulo: "Contenido", sub: "Imagenes y videos" },
   { id: "asignacion", etapa: "asignacion", titulo: "Ajuste", sub: "Que se ve en cada frase" },
   { id: "video", etapa: "render", titulo: "Video", sub: "Montaje final" },
+  // Fuera del grafo: se puede usar en cualquier momento.
+  { id: "miniatura", etapa: "render", titulo: "Miniatura", sub: "Portada del video" },
 ];
 
 // Accion principal de cada parada: que etapa ejecutar y a donde ir despues.
@@ -43,7 +47,8 @@ const SIGUIENTE: Record<ParadaId, { texto: string; hasta?: EtapaId; ir?: ParadaI
   escenas: { texto: "Subir contenido", hasta: "escenas", ir: "recursos" },
   recursos: { texto: "Ajustar planos", hasta: "asignacion", ir: "asignacion" },
   asignacion: { texto: "Montar video", hasta: "render", ir: "video" },
-  video: { texto: "Montar video", hasta: "render" },
+  video: { texto: "Montar video", hasta: "render", ir: "video" },
+  miniatura: { texto: "Ver el video", ir: "video" },
 };
 
 const NOMBRE_ETAPA: Record<EtapaId, string> = {
@@ -57,6 +62,7 @@ export default function Proyecto({ id }: { id: string }) {
   const [locales, setLocales] = useState<Record<string, Params>>({});
   const [titulo, setTitulo] = useState("");
   const [verLog, setVerLog] = useState(false);
+  const [conMiniatura, setConMiniatura] = useState(false);
   const pendientes = useRef<Record<string, Params>>({});
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tituloTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,6 +102,10 @@ export default function Proyecto({ id }: { id: string }) {
   useEffect(() => {
     if (!inicial.current) history.replaceState(null, "", `#${parada}`);
   }, [parada]);
+
+  useEffect(() => {
+    miniatura.ver(id).then((m) => setConMiniatura(!!m.final)).catch(() => {});
+  }, [id, parada]);
 
   // Mientras hay un trabajo, se consulta cada 1,5 s.
   const trabajando = !!vista?.trabajo;
@@ -160,7 +170,7 @@ export default function Proyecto({ id }: { id: string }) {
     );
   }
 
-  const props: PanelProps = { id, vista, p, set, ejecutar, ocupado: trabajando, recargar };
+  const props: PanelProps = { id, vista, p, set, ejecutar, ocupado: trabajando, recargar, irA: setParada };
   const actual = PARADAS.find((x) => x.id === parada)!;
   const idx = PARADAS.findIndex((x) => x.id === parada);
   const sig = SIGUIENTE[parada];
@@ -170,11 +180,18 @@ export default function Proyecto({ id }: { id: string }) {
 
   function estadoParada(x: (typeof PARADAS)[number]): EstadoEtapa | null {
     if (x.id === "material") return materialListo ? "ok" : "pendiente";
+    if (x.id === "miniatura") return conMiniatura ? "ok" : "pendiente";
     if (x.id === "escenas" && !modoEscenas) return null; // no aplica en "mis recursos"
     return vista!.etapas[x.etapa].estado;
   }
 
+  const videoListo = vista.etapas.render.estado === "ok";
+
   async function accionPrincipal() {
+    if (parada === "video" && videoListo) {
+      setParada("miniatura");
+      return;
+    }
     if (parada === "voz" && !modoEscenas) {
       setParada("recursos");
       return;
@@ -199,7 +216,7 @@ export default function Proyecto({ id }: { id: string }) {
       </div>
 
       {/* Etapas */}
-      <ol className="mb-6 grid grid-cols-4 gap-2 md:grid-cols-7">
+      <ol className="mb-6 grid grid-cols-4 gap-2 md:grid-cols-8">
         {PARADAS.map((x, i) => {
           const est = estadoParada(x);
           const activa = x.id === parada;
@@ -240,8 +257,8 @@ export default function Proyecto({ id }: { id: string }) {
 
       <div className="mb-3 flex items-center gap-3">
         <h2 className="font-display text-xl font-semibold">{actual.titulo}</h2>
-        {actual.id !== "material" && <ChipEstado estado={vista.etapas[actual.etapa].estado} />}
-        {vista.etapas[actual.etapa].duracion_s != null && actual.id !== "material" && (
+        {!["material", "miniatura"].includes(actual.id) && <ChipEstado estado={vista.etapas[actual.etapa].estado} />}
+        {vista.etapas[actual.etapa].duracion_s != null && !["material", "miniatura"].includes(actual.id) && (
           <span className="text-xs text-tinta-3">ultima vez: {vista.etapas[actual.etapa].duracion_s}s</span>
         )}
       </div>
@@ -253,6 +270,7 @@ export default function Proyecto({ id }: { id: string }) {
       {parada === "recursos" && <PanelRecursos {...props} />}
       {parada === "asignacion" && <PanelAsignacion {...props} />}
       {parada === "video" && <PanelVideo {...props} />}
+      {parada === "miniatura" && <PanelMiniatura {...props} />}
 
       {/* Barra inferior: trabajo en curso + accion principal */}
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-linea bg-papel/95 backdrop-blur">
@@ -293,9 +311,9 @@ export default function Proyecto({ id }: { id: string }) {
               <button
                 className="boton boton-acento"
                 onClick={accionPrincipal}
-                disabled={(parada === "material" && !materialListo) || (parada === "video" && vista.etapas.render.estado === "ok")}
+                disabled={parada === "material" && !materialListo}
               >
-                {parada === "voz" && !modoEscenas ? "Subir contenido" : sig.texto} <ArrowRight size={15} />
+                {parada === "voz" && !modoEscenas ? "Subir contenido" : parada === "video" && videoListo ? "Miniatura" : sig.texto} <ArrowRight size={15} />
               </button>
             </div>
           )}

@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
 from app.services.estudio import almacen, asistente, grafo, medios, recursos, voz_clonada
+from app.services.estudio import miniatura as portada_video
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -42,16 +43,21 @@ def listar():
     for p in almacen.listar():
         estado = almacen.cargar_estado(p["id"])
         render = (estado["etapas"].get("render") or {}).get("salida") or {}
+        mini = portada_video.estado(p["id"])
         salida.append({"id": p["id"], "titulo": p["titulo"], "creado": p["creado"],
-                       "actualizado": p["actualizado"], "mp4": render.get("mp4"),
-                       "portada": _portada(p["id"]) if render.get("mp4") else None,
+                       "actualizado": max(p["actualizado"], mini["version"] or 0), "mp4": render.get("mp4"),
+                       "portada": _portada(p["id"]) if render.get("mp4") or mini["final"] else None,
                        "duracion": render.get("duracion"),
                        "trabajando": grafo.trabajo(p["id"])[0] is not None})
     return {"proyectos": salida}
 
 
 def _portada(pid):
-    """render/portada.jpg: un fotograma del video final (se crea si falta o si es vieja)."""
+    """La miniatura FINAL subida; si no hay, render/portada.jpg: un fotograma del
+    video final (se crea si falta o si es vieja)."""
+    final = portada_video.estado(pid)["final"]
+    if final:
+        return final
     video = almacen.dir_proyecto(pid, "render", "final.mp4")
     portada = almacen.dir_proyecto(pid, "render", "portada.jpg")
     if not os.path.isfile(video):
@@ -363,3 +369,57 @@ def voces_clonadas_audio(vid: str):
         raise HTTPException(400, "voz invalida")
     except Exception:  # noqa: BLE001
         raise HTTPException(404, "no se pudo traer la muestra")
+
+
+# ------------------------------------------------------------------ miniatura
+
+@router.get("/estudio/proyectos/{pid}/miniatura", summary="Conceptos, referencia y miniatura final")
+def miniatura_ver(pid: str):
+    _existe(pid)
+    return portada_video.estado(pid)
+
+
+@router.post("/estudio/proyectos/{pid}/miniatura/generar", summary="Claude propone conceptos y prompts")
+def miniatura_generar(pid: str, body: dict = Body(default={})):
+    _existe(pid)
+    params = {k: body[k] for k in portada_video.DEFECTOS if k in body}
+    try:
+        portada_video.generar(pid, params)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return portada_video.estado(pid)
+
+
+@router.post("/estudio/proyectos/{pid}/miniatura/{tipo}", summary="Subir la referencia o la miniatura final")
+async def miniatura_subir(pid: str, tipo: str, archivo: UploadFile = File(...)):
+    _existe(pid)
+    if tipo not in ("referencia", "final"):
+        raise HTTPException(404, "tipo desconocido")
+    datos = await archivo.read()
+    if len(datos) > 25 * 1024 * 1024:
+        raise HTTPException(413, "la imagen no puede pasar de 25 MB")
+    try:
+        portada_video.guardar_archivo(pid, tipo, datos)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return portada_video.estado(pid)
+
+
+@router.delete("/estudio/proyectos/{pid}/miniatura/{tipo}", summary="Quitar la referencia o la final")
+def miniatura_quitar(pid: str, tipo: str):
+    _existe(pid)
+    if tipo not in ("referencia", "final"):
+        raise HTTPException(404, "tipo desconocido")
+    portada_video.quitar_archivo(pid, tipo)
+    return portada_video.estado(pid)
+
+
+@router.get("/estudio/proyectos/{pid}/miniatura-descargar", summary="Descargar la miniatura final")
+def miniatura_descargar(pid: str):
+    proyecto = _existe(pid)
+    final = portada_video.estado(pid)["final"]
+    if not final:
+        raise HTTPException(404, "todavia no hay miniatura final")
+    ruta = almacen.dir_proyecto(pid, final)
+    slug = re.sub(r"[^a-z0-9]+", "-", proyecto["titulo"].lower()).strip("-")[:60] or "miniatura"
+    return FileResponse(ruta, filename=f"{slug}-miniatura{os.path.splitext(ruta)[1]}")

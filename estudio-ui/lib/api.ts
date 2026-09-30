@@ -144,6 +144,29 @@ export const api = {
     pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${nombre.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" }),
 };
 
+export interface ConceptoMiniatura {
+  nombre: string; idea: string; texto: string; prompt: string; prompt_sin_texto: string;
+  referencia_escena: number | null;
+}
+export interface EstadoMiniatura {
+  params: { indicaciones: string; texto_en_imagen: boolean; cantidad: number; modelo: string; esfuerzo: string };
+  conceptos: ConceptoMiniatura[]; analisis_referencia: string; error: string | null;
+  generado: number | null; generando: boolean; referencia: string | null; final: string | null; version: number | null;
+}
+
+export const miniatura = {
+  ver: (id: string) => pedir<EstadoMiniatura>(`/proyectos/${id}/miniatura`),
+  generar: (id: string, params: Partial<EstadoMiniatura["params"]>) =>
+    pedir<EstadoMiniatura>(`/proyectos/${id}/miniatura/generar`, { method: "POST", ...json(params) }),
+  subir: (id: string, tipo: "referencia" | "final", archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<EstadoMiniatura>(`/proyectos/${id}/miniatura/${tipo}`, { method: "POST", body: fd });
+  },
+  quitar: (id: string, tipo: "referencia" | "final") =>
+    pedir<EstadoMiniatura>(`/proyectos/${id}/miniatura/${tipo}`, { method: "DELETE" }),
+};
+
 export interface VozClonada { id: string; nombre: string; duracion: number | null; transcripcion: string }
 export interface VocesClonadas { activo: boolean; voces: VozClonada[]; error: string | null }
 
@@ -176,6 +199,7 @@ export const url = {
   scriptJson: (id: string) => `${BASE}/proyectos/${id}/script.json`,
   promptsTxt: (id: string) => `${BASE}/proyectos/${id}/prompts.txt`,
   muestraClonada: (vid: string) => `${BASE}/voces-clonadas/${vid}/audio`,
+  descargarMiniatura: (id: string) => `${BASE}/proyectos/${id}/miniatura-descargar`,
 };
 
 export async function listarMusica(): Promise<string[]> {
