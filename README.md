@@ -187,6 +187,12 @@ material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐ 
   - **Color unificado:** cuatro tonos a elegir, con viñeta y grano fino.
   - **Gancho** sobreimpreso en los primeros 2 s.
 
+  - **Efectos en momentos clave:** se aplican solo donde Claude marca un momento fuerte, y como mucho uno cada 20 s, para que no le quiten protagonismo al mensaje:
+    - **Cita destacada:** la frase más potente aparece en grande sobre la imagen oscurecida y desenfocada.
+    - **Pausa dramática:** tras un remate, la imagen se congela 1 s sin color.
+    - **Destello** en las revelaciones.
+    - **Blanco y negro cálido** en los tramos que narran otra época.
+
   Claude marca las palabras clave, los datos, las revelaciones y el gancho en una sola pasada (unos segundos). Esa pasada se guarda en caché, así que cambiar colores o volúmenes no vuelve a llamarlo. Todo se hace con ffmpeg y libass, sin Remotion.
 
   Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/whoosh.(wav|mp3)` y `golpe.(wav|mp3)`. Si no los hay, se generan solos.

@@ -123,6 +123,20 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                       value={(r.gancho_texto as string) || ""} onChange={(e) => set("render", "gancho_texto", e.target.value)} />
                   </Campo>
                 )}
+                <Interruptor valor={r.ed_momentos !== false} onChange={s("ed_momentos")}
+                  titulo="Efectos en momentos clave" detalle="Solo donde Claude marque un momento fuerte, como mucho uno cada 20 s." />
+                {r.ed_momentos !== false && (
+                  <div className="space-y-2.5 pl-7">
+                    <Interruptor valor={r.ed_cita !== false} onChange={s("ed_cita")}
+                      titulo="Cita destacada" detalle="La frase mas potente, grande en el centro sobre la imagen oscurecida (1-2 por video)." />
+                    <Interruptor valor={r.ed_pausa !== false} onChange={s("ed_pausa")}
+                      titulo="Pausa dramatica" detalle="Tras un remate, la imagen se congela 1 s, pierde color y se acerca." />
+                    <Interruptor valor={r.ed_destello !== false} onChange={s("ed_destello")}
+                      titulo="Destello" detalle="Fogonazo breve en las revelaciones, junto al golpe de sonido." />
+                    <Interruptor valor={r.ed_pasado !== false} onChange={s("ed_pasado")}
+                      titulo="Blanco y negro para el pasado" detalle="Cuando la narracion habla de otra epoca, esas escenas van en B/N calido." />
+                  </div>
+                )}
                 {r.acabado === "clasico" && (
                   <p className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">El estilo editorial necesita el acabado Rapido (en Motor).</p>
                 )}

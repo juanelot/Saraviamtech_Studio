@@ -63,7 +63,7 @@ def _salida_x264(frames, destino):
             "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", destino]
 
 
-def _clip_imagen(ruta, frames, w, h, encaje, zoom, acercar, destino, encuadre=1.0):
+def _clip_imagen(ruta, frames, w, h, encaje, zoom, acercar, destino, encuadre=1.0, extra=""):
     ff = medios.ffmpeg()
     if zoom and zoom > 0:
         # Se encaja al doble de tamano y zoompan reescala: sin eso el zoom tiembla.
@@ -71,11 +71,11 @@ def _clip_imagen(ruta, frames, w, h, encaje, zoom, acercar, destino, encuadre=1.
         if encuadre != 1.0:  # subcorte de la edicion editorial: mismo movimiento, mas cerca
             z = f"{encuadre}*({z})"
         filtro = (f"{_encaje(encaje, w * 2, h * 2)},zoompan=z='{z}':x='iw/2-(iw/zoom/2)':"
-                  f"y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={FPS},format=yuv420p")
+                  f"y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={FPS}{extra},format=yuv420p")
         args = [ff, "-hide_banner", "-loglevel", "error", "-y", "-i", ruta,
                 "-filter_complex", filtro] + _salida_x264(frames, destino)
     else:
-        filtro = f"{_encaje(encaje, w, h)}{_cerrar(encuadre, w, h)},format=yuv420p"
+        filtro = f"{_encaje(encaje, w, h)}{_cerrar(encuadre, w, h)}{extra},format=yuv420p"
         args = [ff, "-hide_banner", "-loglevel", "error", "-y", "-loop", "1", "-framerate", str(FPS),
                 "-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
     return args
@@ -88,7 +88,19 @@ def _cerrar(encuadre, w, h):
     return f",crop=trunc(iw/{encuadre}/2)*2:trunc(ih/{encuadre}/2)*2,scale={w}:{h},setsar=1"
 
 
-def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuadre=1.0):
+def _clip_congelado(ruta, frames, w, h, encaje, offset, destino, encuadre=1.0, extra=""):
+    """Pausa dramatica: UN fotograma (del video en `offset`, o la imagen) que se
+    acerca despacio durante toda la pieza."""
+    z = f"{encuadre}*(1+0.06*on/{frames})"
+    filtro = (f"trim=end_frame=1,{_encaje(encaje, w * 2, h * 2)},zoompan=z='{z}':x='iw/2-(iw/zoom/2)':"
+              f"y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={FPS}{extra},format=yuv420p")
+    args = [medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
+    if offset > 0:
+        args += ["-ss", f"{offset:.3f}"]
+    return args + ["-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
+
+
+def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuadre=1.0, extra=""):
     necesita = frames / FPS
     bucle = dur_recurso and (offset + necesita) > dur_recurso + 0.05
     args = [medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
@@ -96,20 +108,27 @@ def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuad
         args += ["-stream_loop", "-1"]
     if offset > 0:
         args += ["-ss", f"{offset:.3f}"]
-    filtro = f"{_encaje(encaje, w, h)}{_cerrar(encuadre, w, h)},fps={FPS},format=yuv420p"
+    filtro = f"{_encaje(encaje, w, h)}{_cerrar(encuadre, w, h)}{extra},fps={FPS},format=yuv420p"
     return args + ["-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
 
 
 def _hacer_clip(plano, recurso, frames, w, h, p, destino):
     tmp = destino + ".tmp.mp4"
     encuadre = float(plano.get("encuadre") or 1.0)
-    if plano["tipo"] == "imagen":
+    extra = ""
+    if plano.get("pasado"):
+        extra += "," + edicion.FILTRO_PASADO
+    offset = float(plano.get("offset") or 0) + float(plano.get("desde") or 0)
+    if plano.get("efecto") == "pausa":
+        extra += "," + edicion.FILTRO_PAUSA
+        args = _clip_congelado(recurso["ruta"], frames, w, h, p["encaje"],
+                               offset if plano["tipo"] == "video" else 0, tmp, encuadre, extra)
+    elif plano["tipo"] == "imagen":
         args = _clip_imagen(recurso["ruta"], frames, w, h, p["encaje"], float(p["zoom"] or 0),
-                            (plano["i"] + plano.get("pieza", 0)) % 2 == 0, tmp, encuadre)
+                            (plano["i"] + plano.get("pieza", 0)) % 2 == 0, tmp, encuadre, extra)
     else:
-        offset = float(plano.get("offset") or 0) + float(plano.get("desde") or 0)
         args = _clip_video(recurso["ruta"], frames, w, h, p["encaje"], offset,
-                           float(recurso.get("duracion") or 0), tmp, encuadre)
+                           float(recurso.get("duracion") or 0), tmp, encuadre, extra)
     r = medios.correr(args, timeout=900)
     if r.returncode != 0 or not os.path.exists(tmp):
         raise RuntimeError(f"ffmpeg fallo en el plano {plano['i']} ({recurso['nombre']}): {r.stderr[-400:]}")
@@ -165,7 +184,7 @@ def ejecutar(ctx):
 
     # Editorial: Claude marca antes de los clips (las revelaciones deciden los
     # subcortes) y los planos se parten en piezas. Si no, una pieza por plano.
-    piezas = [{**x, "encuadre": 1.0, "desde": 0.0, "pieza": 0} for x in planos]
+    piezas = [{**x, "encuadre": 1.0, "desde": 0.0, "pieza": 0, "efecto": None, "pasado": False} for x in planos]
     if editorial:
         ctx.avisar("edicion editorial: marcas de Claude", 1)
         lineas, marcas_ = edicion.lineas_y_marcas(ctx, voz, p)
@@ -181,6 +200,8 @@ def ejecutar(ctx):
                 (x["i"] + x["pieza"]) % 2 if x["tipo"] == "imagen" else 0)
         if x["encuadre"] != 1.0 or x["desde"]:  # sin subcortes la clave es la de siempre: cache intacta
             base += (x["encuadre"], x["desde"] if x["tipo"] == "video" else 0)
+        if x["efecto"] or x["pasado"]:
+            base += (x["efecto"], x["pasado"], x["desde"] if x["efecto"] == "pausa" else 0)
         clave = hashlib.sha1(repr(base).encode()).hexdigest()[:16]
         destino = os.path.join(dir_clips, f"{clave}.mp4")
         clips.append(destino)
