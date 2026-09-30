@@ -105,7 +105,15 @@ En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Vid
 Prompts maestros (/maestros, maestros.py): biblioteca de estilos. Se sube un prompt maestro
 (docx/txt/md/pegado) y Claude lo desglosa en una ficha (pasos, preguntas, entregables,
 formato, narracion, bloques fijos, reglas). Guardado en storage/estudio/maestros/<id>/.
-Crear contenido desde un estilo: pendiente (fase 2).
+Portada propia: en la ficha, "Cambiar portada" sobre la imagen (o quitarla).
+Crear contenido (boton en la ficha, creaciones.py): una charla que EJECUTA el prompt maestro
+con el CLI de Claude, paso a paso. Tema opcional de antemano; modo Guiado (botones con las
+opciones de cada paso, la recomendada con estrella, o texto libre) o Automatico (elige la
+recomendada hasta el final; se puede parar). Al terminar se ordenan los ENTREGABLES (guion,
+escenas con prompt de imagen y de video, miniaturas, bloques) y se descargan guion.txt,
+prompts de imagen/video .txt (separados por linea en blanco) y script.json (extension de Flow).
+Las creaciones se guardan en storage/estudio/maestros/<id>/creaciones/. Crear video desde
+una creacion: pendiente (fase 3).
 La pantalla (estudio-ui): inicio con "Nuevo video" y tarjetas de "Mis videos" (Ver,
 Descargar, Editar, Duplicar, Renombrar, Borrar). Dentro de un video, 8 pasos arriba:
 Material, Guion, Voz, Escenas, Contenido, Ajuste, Video, Miniatura. Boton "Todo hasta el video" (arriba a la

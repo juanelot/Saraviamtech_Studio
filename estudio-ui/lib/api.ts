@@ -265,4 +265,41 @@ export const maestros = {
     return r.text();
   },
   portada: (id: string, v?: number) => `${BASE}/maestros/${id}/portada${v ? `?v=${Math.round(v)}` : ""}`,
+  ponerPortada: (id: string, archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<Maestro>(`/maestros/${id}/portada`, { method: "POST", body: fd });
+  },
+  quitarPortada: (id: string) => pedir<Maestro>(`/maestros/${id}/portada`, { method: "DELETE" }),
+};
+
+export interface AppTurno { tipo: "texto" | "opcion" | "fin"; opciones: string[]; recomendada: string }
+export interface TurnoCreacion { rol: "persona" | "claude"; texto: string; t: number; auto?: boolean; app?: AppTurno }
+export interface EscenaEntregable { n: number; narracion: string | null; imagen: string | null; video: string | null; duracion_s: number | null }
+export interface Entregables {
+  titulo: string; guion: string | null; escenas: EscenaEntregable[]; miniaturas: string[];
+  bloques: { titulo: string; texto: string }[];
+}
+export interface Creacion {
+  id: string; maestro: string; titulo: string; tema: string; modo: "guiado" | "auto"; modelo: string;
+  creado: number; actualizado: number; turnos: TurnoCreacion[]; error: string | null; pensando: boolean;
+  entregables: Entregables | null; entregables_estado: "preparando" | "listo" | "error" | null; entregables_error: string | null;
+}
+export interface ResumenCreacion {
+  id: string; titulo: string; creado: number; actualizado: number; pensando: boolean; turnos: number;
+  modo: Creacion["modo"]; terminada: boolean; entregables: boolean;
+}
+
+export const creaciones = {
+  listar: (mid: string) => pedir<{ creaciones: ResumenCreacion[] }>(`/maestros/${mid}/creaciones`),
+  crear: (mid: string, datos: { tema: string; modo: Creacion["modo"]; modelo: string }) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones`, { method: "POST", ...json(datos) }),
+  ver: (mid: string, cid: string) => pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}`),
+  enviar: (mid: string, cid: string, texto: string) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/mensaje`, { method: "POST", ...json({ texto }) }),
+  reintentar: (mid: string, cid: string) => pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/reintentar`, { method: "POST" }),
+  entregables: (mid: string, cid: string) => pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/entregables`, { method: "POST" }),
+  cambiar: (mid: string, cid: string, cambios: { titulo?: string; modo?: Creacion["modo"] }) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}`, { method: "PATCH", ...json(cambios) }),
+  borrar: (mid: string, cid: string) => pedir<{ ok: boolean }>(`/maestros/${mid}/creaciones/${cid}`, { method: "DELETE" }),
 };

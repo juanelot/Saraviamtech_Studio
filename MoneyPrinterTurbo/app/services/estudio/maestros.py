@@ -9,7 +9,8 @@ que entrega, formato, bloques fijos, reglas) para reutilizarlo en cada creacion.
     storage/estudio/maestros/<id>/
         maestro.json   nombre, origen, ficha, estado del analisis, notas
         original.txt   el texto del prompt maestro, intacto
-        portada.jpg    la imagen mas grande del .docx (si trae)
+        portada.jpg    la imagen mas grande del .docx (si trae) o la que suba la persona
+        creaciones/    las charlas de "Crear contenido" (ver creaciones.py)
 
 El texto del prompt maestro se trata como DATO a analizar, nunca como
 instrucciones para el Claude que lo desglosa.
@@ -86,16 +87,20 @@ def portada_de_docx(datos: bytes):
     if mejor is None:
         return None
     try:
-        im = mejor.convert("RGBA")
-        fondo = Image.new("RGB", im.size, (255, 255, 255))
-        fondo.paste(im, mask=im.getchannel("A"))
-        im = fondo
-        im.thumbnail((900, 900))
-        salida = io.BytesIO()
-        im.save(salida, "JPEG", quality=85)
-        return salida.getvalue()
+        return _a_jpg(mejor)
     except Exception:  # noqa: BLE001
         return None
+
+
+def _a_jpg(im) -> bytes:
+    """JPG de 900 px como maximo; la transparencia se pone sobre blanco."""
+    im = im.convert("RGBA")
+    fondo = Image.new("RGB", im.size, (255, 255, 255))
+    fondo.paste(im, mask=im.getchannel("A"))
+    fondo.thumbnail((900, 900))
+    salida = io.BytesIO()
+    fondo.save(salida, "JPEG", quality=85)
+    return salida.getvalue()
 
 
 def extraer(nombre_archivo: str, datos: bytes):
@@ -193,6 +198,36 @@ def editar(mid, cambios):
             meta["notas"] = str(cambios["notas"] or "")[:5000]
         if isinstance(cambios.get("ficha"), dict) and meta.get("ficha"):
             meta["ficha"] = {**meta["ficha"], **cambios["ficha"]}
+        meta["actualizado"] = time.time()
+        almacen.escribir_json(_ruta_meta(mid), meta)
+    return cargar(mid)
+
+
+def poner_portada(mid, datos: bytes):
+    """Portada elegida por la persona (sustituye a la del .docx)."""
+    try:
+        im = Image.open(io.BytesIO(datos))
+        im.load()
+        jpg = _a_jpg(im)
+    except Exception as e:  # noqa: BLE001
+        raise ErrorMaestro("no es una imagen valida (usa JPG, PNG o WEBP)") from e
+    with open(os.path.join(_dir(mid), "portada.jpg"), "wb") as f:
+        f.write(jpg)
+    return _tocar(mid)
+
+
+def quitar_portada(mid):
+    ruta = os.path.join(_dir(mid), "portada.jpg")
+    if os.path.isfile(ruta):
+        os.remove(ruta)
+    return _tocar(mid)
+
+
+def _tocar(mid):
+    with almacen.candado(f"maestro-{mid}"):
+        meta = almacen.leer_json(_ruta_meta(mid))
+        if not meta:
+            raise ErrorMaestro("prompt maestro no encontrado")
         meta["actualizado"] = time.time()
         almacen.escribir_json(_ruta_meta(mid), meta)
     return cargar(mid)

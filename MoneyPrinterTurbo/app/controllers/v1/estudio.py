@@ -14,7 +14,7 @@ from fastapi import Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
-from app.services.estudio import almacen, asistente, grafo, maestros, medios, recursos, voz_clonada
+from app.services.estudio import almacen, asistente, creaciones, grafo, maestros, medios, recursos, voz_clonada
 from app.services.estudio import miniatura as portada_video
 
 router = new_router()
@@ -479,6 +479,24 @@ def maestros_portada(mid: str):
     return FileResponse(ruta, media_type="image/jpeg")
 
 
+@router.post("/estudio/maestros/{mid}/portada", summary="Poner una portada propia")
+async def maestros_poner_portada(mid: str, archivo: UploadFile = File(...)):
+    _maestro(mid)
+    datos = await archivo.read()
+    if len(datos) > 20 * 1024 * 1024:
+        raise HTTPException(413, "la imagen no puede pasar de 20 MB")
+    try:
+        return maestros.poner_portada(mid, datos)
+    except maestros.ErrorMaestro as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/estudio/maestros/{mid}/portada", summary="Quitar la portada")
+def maestros_quitar_portada(mid: str):
+    _maestro(mid)
+    return maestros.quitar_portada(mid)
+
+
 @router.patch("/estudio/maestros/{mid}", summary="Renombrar, notas o corregir la ficha")
 def maestros_editar(mid: str, body: dict = Body(...)):
     _maestro(mid)
@@ -499,4 +517,82 @@ def maestros_analizar(mid: str, body: dict = Body(default={})):
 def maestros_borrar(mid: str):
     _maestro(mid)
     maestros.borrar(mid)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ crear contenido con un prompt maestro
+
+def _creacion(mid, cid):
+    _maestro(mid)
+    if not almacen.PATRON_ID.match(cid or ""):
+        raise HTTPException(404, "creacion no encontrada")
+    try:
+        return creaciones.cargar(mid, cid)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/estudio/maestros/{mid}/creaciones", summary="Creaciones hechas con un prompt maestro")
+def creaciones_listar(mid: str):
+    _maestro(mid)
+    return {"creaciones": creaciones.listar(mid)}
+
+
+@router.post("/estudio/maestros/{mid}/creaciones", summary="Empezar a crear contenido con el prompt maestro")
+def creaciones_crear(mid: str, body: dict = Body(default={})):
+    _maestro(mid)
+    try:
+        return creaciones.crear(mid, body.get("tema", ""), body.get("modo", "guiado"), body.get("modelo", "sonnet"))
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/estudio/maestros/{mid}/creaciones/{cid}", summary="Estado de una creacion")
+def creaciones_ver(mid: str, cid: str):
+    return _creacion(mid, cid)
+
+
+@router.post("/estudio/maestros/{mid}/creaciones/{cid}/mensaje", summary="Responder en la creacion")
+def creaciones_mensaje(mid: str, cid: str, body: dict = Body(...)):
+    _creacion(mid, cid)
+    try:
+        return creaciones.enviar(mid, cid, body.get("texto", ""))
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/estudio/maestros/{mid}/creaciones/{cid}/reintentar", summary="Repetir el turno que fallo")
+def creaciones_reintentar(mid: str, cid: str):
+    _creacion(mid, cid)
+    try:
+        return creaciones.reintentar(mid, cid)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/estudio/maestros/{mid}/creaciones/{cid}/entregables", summary="Ordenar lo producido en entregables")
+def creaciones_entregables(mid: str, cid: str):
+    _creacion(mid, cid)
+    try:
+        return creaciones.preparar_entregables(mid, cid)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
+
+
+@router.patch("/estudio/maestros/{mid}/creaciones/{cid}", summary="Renombrar o cambiar de modo (guiado/auto)")
+def creaciones_cambiar(mid: str, cid: str, body: dict = Body(...)):
+    _creacion(mid, cid)
+    try:
+        return creaciones.cambiar(mid, cid, body)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
+
+
+@router.delete("/estudio/maestros/{mid}/creaciones/{cid}", summary="Borrar una creacion")
+def creaciones_borrar(mid: str, cid: str):
+    _creacion(mid, cid)
+    try:
+        creaciones.borrar(mid, cid)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
     return {"ok": True}

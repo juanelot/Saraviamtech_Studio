@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, BookOpen, Check, Copy, Film, Languages, Loader2, Lock, Mic, MicOff, RefreshCw, Sparkles, Trash2, TriangleAlert,
+  ArrowLeft, BookOpen, Check, CheckCircle2, Copy, Film, ImagePlus, Languages, Loader2, Lock, MessagesSquare, Mic, MicOff,
+  RefreshCw, Sparkles, Trash2, TriangleAlert, X,
 } from "lucide-react";
-import { AvisoError, Tarjeta } from "./ui";
-import { maestros, type Maestro } from "@/lib/api";
+import { AvisoError, Segmentado, Tarjeta } from "./ui";
+import { creaciones, maestros, type Creacion, type Maestro, type ResumenCreacion } from "@/lib/api";
 
 const ENTREGABLES: Record<string, string> = {
   ideas: "Ideas", guion: "Guion", beats: "Beats", prompts_imagen: "Prompts de imagen", prompts_video: "Prompts de video",
@@ -24,6 +25,9 @@ export default function FichaMaestro({ id }: { id: string }) {
   const [nombre, setNombre] = useState("");
   const [notas, setNotas] = useState("");
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputPortada = useRef<HTMLInputElement>(null);
+  const [lista, setLista] = useState<ResumenCreacion[]>([]);
+  const [empezar, setEmpezar] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -44,7 +48,16 @@ export default function FichaMaestro({ id }: { id: string }) {
     // cargar es async: el setState ocurre tras el fetch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
-  }, [cargar]);
+    creaciones.listar(id).then((r) => setLista(r.creaciones)).catch(() => {});
+  }, [cargar, id]);
+
+  async function portada(archivo: File | null) {
+    try {
+      setM(archivo ? await maestros.ponerPortada(id, archivo) : await maestros.quitarPortada(id));
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    }
+  }
 
   const analizando = !!m?.analizando;
   useEffect(() => {
@@ -75,22 +88,38 @@ export default function FichaMaestro({ id }: { id: string }) {
         <input value={nombre} aria-label="Nombre"
           onChange={(e) => { setNombre(e.target.value); guardar({ nombre: e.target.value }); }}
           className="min-w-0 flex-1 bg-transparent font-display text-2xl font-semibold tracking-tight outline-none md:text-3xl" />
-        <button className="boton boton-acento" disabled title="Llega en la fase 2">
+        <button className="boton boton-acento" disabled={!f || analizando} onClick={() => setEmpezar((v) => !v)}>
           <Sparkles size={15} /> Crear contenido
         </button>
       </div>
+
+      {empezar && f && <Empezar m={m} onCerrar={() => setEmpezar(false)} onError={setError} />}
 
       <AvisoError texto={error || (m.estado === "error" && !analizando ? `No se pudo desglosar: ${m.error}` : null)} />
 
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         <aside className="space-y-4">
           <div className="overflow-hidden rounded-2xl border border-linea bg-tarjeta">
-            {m.portada ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={maestros.portada(m.id)} alt="" className="aspect-video w-full object-cover" />
-            ) : (
-              <div className="bg-marca grid aspect-video place-items-center opacity-80"><BookOpen size={30} className="text-[#0b0d17]" /></div>
-            )}
+            <div className="group relative">
+              {m.portada ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={maestros.portada(m.id, m.actualizado)} alt="" className="aspect-video w-full object-cover" />
+              ) : (
+                <div className="bg-marca grid aspect-video place-items-center opacity-80"><BookOpen size={30} className="text-[#0b0d17]" /></div>
+              )}
+              <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+                <button className="boton boton-linea !bg-tarjeta !px-2.5 !py-1 text-xs" onClick={() => inputPortada.current?.click()}>
+                  <ImagePlus size={13} /> {m.portada ? "Cambiar portada" : "Poner portada"}
+                </button>
+                {m.portada && (
+                  <button className="boton boton-linea !bg-tarjeta !px-2 !py-1 text-xs" title="Quitar portada" onClick={() => portada(null)}>
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <input ref={inputPortada} type="file" accept="image/png,image/jpeg,image/webp" hidden
+                onChange={(e) => { portada(e.target.files?.[0] || null); e.target.value = ""; }} />
+            </div>
             <div className="space-y-3 p-4 text-sm">
               {f ? (
                 <>
@@ -123,6 +152,24 @@ export default function FichaMaestro({ id }: { id: string }) {
               <p className="text-xs text-tinta-3">{m.origen} · {Math.round(m.caracteres / 1000)} mil caracteres</p>
             </div>
           </div>
+
+          {lista.length > 0 && (
+            <Tarjeta titulo="Mis creaciones">
+              <ul className="-mx-2 space-y-0.5">
+                {lista.map((c) => (
+                  <li key={c.id}>
+                    <Link href={`/maestros/${id}/crear/${c.id}`} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-hundido">
+                      {c.pensando ? <Loader2 size={14} className="shrink-0 animate-spin text-acento" />
+                        : c.terminada ? <CheckCircle2 size={14} className="shrink-0 text-ok" />
+                        : <MessagesSquare size={14} className="shrink-0 text-tinta-3" />}
+                      <span className="min-w-0 flex-1 truncate">{c.titulo}</span>
+                      <span className="shrink-0 text-xs text-tinta-3">{new Date(c.actualizado * 1000).toLocaleDateString()}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Tarjeta>
+          )}
 
           <Tarjeta titulo="Mis notas">
             <textarea className="campo min-h-[90px]" placeholder="Apuntes para tus videos o tu clase…" value={notas}
@@ -250,6 +297,58 @@ export default function FichaMaestro({ id }: { id: string }) {
         </section>
       </div>
     </main>
+  );
+}
+
+function Empezar({ m, onCerrar, onError }: { m: Maestro; onCerrar: () => void; onError: (e: string) => void }) {
+  const router = useRouter();
+  const [tema, setTema] = useState("");
+  const [modo, setModo] = useState<Creacion["modo"]>("guiado");
+  const [modelo, setModelo] = useState("sonnet");
+  const [enviando, setEnviando] = useState(false);
+  const primera = m.ficha?.pasos.find((p) => p.pregunta);
+
+  async function ir() {
+    setEnviando(true);
+    try {
+      const c = await creaciones.crear(m.id, { tema, modo, modelo });
+      router.push(`/maestros/${m.id}/crear/${c.id}`);
+    } catch (e) {
+      onError(String((e as Error).message || e));
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <Tarjeta className="mb-5 border-acento/40" titulo="Crear contenido con este estilo"
+      extra={<button className="boton boton-fantasma !px-2" onClick={onCerrar} aria-label="Cerrar"><X size={16} /></button>}>
+      <div className="grid gap-5 md:grid-cols-[1.4fr_1fr]">
+        <label className="block">
+          <span className="etiqueta">Tema o idea (opcional)</span>
+          <textarea className="campo mt-1.5 min-h-[96px]" value={tema} onChange={(e) => setTema(e.target.value)}
+            placeholder={primera?.pregunta ? `Responde de antemano: ${primera.pregunta}` : "De que va el video"} />
+          <span className="mt-1 block text-xs text-tinta-3">
+            Si lo escribes, se responde solo cuando el prompt pregunte por el tema. Si no, Claude te lo preguntara.
+          </span>
+        </label>
+        <div className="space-y-4">
+          <div>
+            <span className="etiqueta mb-1.5 block">Modo</span>
+            <Segmentado valor={modo} onChange={setModo} opciones={[{ v: "guiado", t: "Guiado" }, { v: "auto", t: "Automatico" }]} />
+            <p className="mt-1 text-xs text-tinta-3">
+              {modo === "guiado" ? "Tu eliges en cada paso (botones o texto libre)." : "Claude elige la opcion recomendada en cada paso hasta el final. Puedes pararlo."}
+            </p>
+          </div>
+          <div>
+            <span className="etiqueta mb-1.5 block">Modelo</span>
+            <Segmentado valor={modelo} onChange={setModelo} opciones={[{ v: "sonnet", t: "Sonnet (rapido)" }, { v: "opus", t: "Opus (mas fino)" }]} />
+          </div>
+          <button className="boton boton-acento w-full justify-center" disabled={enviando} onClick={ir}>
+            {enviando ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Empezar
+          </button>
+        </div>
+      </div>
+    </Tarjeta>
   );
 }
 
