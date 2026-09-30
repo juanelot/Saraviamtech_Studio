@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, BookOpen, Check, CheckCircle2, Copy, Film, ImagePlus, Languages, Loader2, Lock, MessagesSquare, Mic, MicOff,
+  ArrowLeft, BookOpen, Check, CheckCircle2, Copy, Film, ImagePlus, Languages, Library, Loader2, Lock, MessagesSquare, Mic, MicOff,
   RefreshCw, Sparkles, Trash2, TriangleAlert, X,
 } from "lucide-react";
 import { AvisoError, Segmentado, Tarjeta } from "./ui";
-import { creaciones, maestros, type Creacion, type Maestro, type ResumenCreacion } from "@/lib/api";
+import { creaciones, maestros, series, type Creacion, type Maestro, type ResumenCreacion, type ResumenSerie } from "@/lib/api";
 
 const ENTREGABLES: Record<string, string> = {
   ideas: "Ideas", guion: "Guion", beats: "Beats", prompts_imagen: "Prompts de imagen", prompts_video: "Prompts de video",
@@ -27,6 +27,7 @@ export default function FichaMaestro({ id }: { id: string }) {
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputPortada = useRef<HTMLInputElement>(null);
   const [lista, setLista] = useState<ResumenCreacion[]>([]);
+  const [listaSeries, setListaSeries] = useState<ResumenSerie[]>([]);
   const [empezar, setEmpezar] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -49,6 +50,7 @@ export default function FichaMaestro({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
     creaciones.listar(id).then((r) => setLista(r.creaciones)).catch(() => {});
+    series.listar(id).then((r) => setListaSeries(r.series)).catch(() => {});
   }, [cargar, id]);
 
   async function portada(archivo: File | null) {
@@ -153,6 +155,22 @@ export default function FichaMaestro({ id }: { id: string }) {
             </div>
           </div>
 
+          {listaSeries.length > 0 && (
+            <Tarjeta titulo="Mis series">
+              <ul className="-mx-2 space-y-0.5">
+                {listaSeries.map((x) => (
+                  <li key={x.id}>
+                    <Link href={`/maestros/${id}/series/${x.id}`} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-hundido">
+                      {x.preparando ? <Loader2 size={14} className="shrink-0 animate-spin text-acento" /> : <Library size={14} className="shrink-0 text-acento" />}
+                      <span className="min-w-0 flex-1 truncate">{x.titulo}</span>
+                      <span className="shrink-0 text-xs text-tinta-3">{x.episodios} ep.</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Tarjeta>
+          )}
+
           {lista.length > 0 && (
             <Tarjeta titulo="Mis creaciones">
               <ul className="-mx-2 space-y-0.5">
@@ -163,6 +181,7 @@ export default function FichaMaestro({ id }: { id: string }) {
                         : c.terminada ? <CheckCircle2 size={14} className="shrink-0 text-ok" />
                         : <MessagesSquare size={14} className="shrink-0 text-tinta-3" />}
                       <span className="min-w-0 flex-1 truncate">{c.titulo}</span>
+                      {c.serie && <span className="shrink-0 rounded-full bg-acento-suave px-1.5 text-[11px] font-semibold text-acento" title="Episodio de una serie">ep. {c.episodio ?? "?"}</span>}
                       <span className="shrink-0 text-xs text-tinta-3">{new Date(c.actualizado * 1000).toLocaleDateString()}</span>
                     </Link>
                   </li>

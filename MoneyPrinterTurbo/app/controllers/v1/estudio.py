@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response
 from app.controllers.v1.base import new_router
 from app.services import claude_cli
 from app.services.estudio import (almacen, asistente, creaciones, grafo, maestros, medios, recursos, referencias,
-                                  voz_clonada)
+                                  series, voz_clonada)
 from app.services.estudio import miniatura as portada_video
 
 router = new_router()
@@ -575,6 +575,99 @@ def creaciones_listar(mid: str):
     return {"creaciones": creaciones.listar(mid)}
 
 
+# ------------------------------------------------------------------ series (episodios con la misma biblia)
+
+def _serie(mid, sid):
+    _maestro(mid)
+    if not almacen.PATRON_ID.match(sid or ""):
+        raise HTTPException(404, "serie no encontrada")
+    try:
+        return series.cargar(mid, sid)
+    except series.ErrorSerie as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/estudio/maestros/{mid}/series", summary="Series hechas con un prompt maestro")
+def series_listar(mid: str):
+    _maestro(mid)
+    return {"series": series.listar(mid)}
+
+
+@router.post("/estudio/maestros/{mid}/series", summary="Convertir una creacion en el episodio 1 de una serie")
+def series_crear(mid: str, body: dict = Body(...)):
+    _creacion(mid, str(body.get("desde") or ""))
+    try:
+        sid = creaciones.convertir_en_serie(mid, body["desde"])
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
+    return series.cargar(mid, sid)
+
+
+@router.get("/estudio/maestros/{mid}/series/{sid}", summary="Biblia, referencias y episodios de una serie")
+def series_ver(mid: str, sid: str):
+    return _serie(mid, sid)
+
+
+@router.patch("/estudio/maestros/{mid}/series/{sid}", summary="Editar titulo, biblia o referencias de la serie")
+def series_cambiar(mid: str, sid: str, body: dict = Body(...)):
+    _serie(mid, sid)
+    return series.cambiar(mid, sid, body)
+
+
+@router.post("/estudio/maestros/{mid}/series/{sid}/biblia", summary="Volver a escribir la biblia con Claude")
+def series_biblia(mid: str, sid: str):
+    _serie(mid, sid)
+    try:
+        return series.rehacer_biblia(mid, sid)
+    except series.ErrorSerie as e:
+        raise HTTPException(409, str(e))
+
+
+@router.post("/estudio/maestros/{mid}/series/{sid}/episodios", summary="Empezar el siguiente episodio")
+def series_episodio(mid: str, sid: str, body: dict = Body(default={})):
+    _serie(mid, sid)
+    try:
+        return creaciones.crear(mid, body.get("tema", ""), body.get("modo", "guiado"), body.get("modelo", "sonnet"),
+                                serie=sid)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(409, str(e))
+
+
+@router.delete("/estudio/maestros/{mid}/series/{sid}", summary="Borrar la serie (los episodios quedan sueltos)")
+def series_borrar(mid: str, sid: str):
+    _serie(mid, sid)
+    try:
+        series.borrar(mid, sid)
+    except series.ErrorSerie as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
+
+
+@router.get("/estudio/maestros/{mid}/series/{sid}/referencias/{k}", summary="Imagen de una referencia de la serie")
+def series_ver_referencia(mid: str, sid: str, k: str):
+    _serie(mid, sid)
+    ruta = referencias.ruta_imagen(series.dir_ref(mid, sid), referencias.clave(k))
+    if not ruta:
+        raise HTTPException(404, "sin imagen")
+    return FileResponse(ruta, filename=os.path.basename(ruta))
+
+
+@router.post("/estudio/maestros/{mid}/series/{sid}/referencias/{k}", summary="Subir la imagen de una referencia de la serie")
+async def series_subir_referencia(mid: str, sid: str, k: str, archivo: UploadFile = File(...)):
+    s = _serie(mid, sid)
+    ref = next((r for r in s["referencias"] if r["clave"] == referencias.clave(k)), None)
+    if not ref:
+        raise HTTPException(404, "referencia no encontrada")
+    datos = await archivo.read()
+    if len(datos) > 30 * 1024 * 1024:
+        raise HTTPException(413, "la imagen no puede pasar de 30 MB")
+    try:
+        referencias.guardar_imagen(series.dir_ref(mid, sid), ref["nombre"], datos)
+    except referencias.ErrorReferencia as e:
+        raise HTTPException(400, str(e))
+    return series.cargar(mid, sid)
+
+
 @router.post("/estudio/maestros/{mid}/creaciones", summary="Empezar a crear contenido con el prompt maestro")
 def creaciones_crear(mid: str, body: dict = Body(default={})):
     _maestro(mid)
@@ -648,7 +741,7 @@ def creaciones_proponer_referencias(mid: str, cid: str):
 @router.get("/estudio/maestros/{mid}/creaciones/{cid}/referencias/{k}", summary="Imagen de una hoja de referencia")
 def creaciones_ver_referencia(mid: str, cid: str, k: str):
     _creacion(mid, cid)
-    ruta = referencias.ruta_imagen(mid, cid, referencias.clave(k))
+    ruta = creaciones.ruta_referencia(mid, cid, k)
     if not ruta:
         raise HTTPException(404, "sin imagen")
     return FileResponse(ruta, filename=os.path.basename(ruta))

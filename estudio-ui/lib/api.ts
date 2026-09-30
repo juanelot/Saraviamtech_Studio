@@ -298,6 +298,7 @@ export interface EscenaEntregable {
 export interface Referencia {
   nombre: string; clave: string; tipo: "personaje" | "vehiculo" | "objeto" | "lugar" | "estilo" | "otro";
   prompt: string | null; archivo: string | null; origen: "maestro" | "claude"; imagen: string | null;
+  heredada?: boolean;
 }
 export interface Entregables {
   titulo: string; guion: string | null; escenas: EscenaEntregable[]; miniaturas: string[];
@@ -308,12 +309,42 @@ export interface Creacion {
   creado: number; actualizado: number; turnos: TurnoCreacion[]; error: string | null; pensando: boolean;
   entregables: Entregables | null; entregables_estado: "preparando" | "listo" | "error" | null; entregables_error: string | null;
   proyectos?: { id: string; narracion: Narracion; t: number }[];
+  serie?: string | null; episodio?: number | null;
+  serie_info?: { id: string; titulo: string; episodio: number | null } | null;
 }
 export type Narracion = "propia" | "demostracion" | "libre" | "sin_voz";
 export interface ResumenCreacion {
   id: string; titulo: string; creado: number; actualizado: number; pensando: boolean; turnos: number;
-  modo: Creacion["modo"]; terminada: boolean; entregables: boolean;
+  modo: Creacion["modo"]; terminada: boolean; entregables: boolean; serie?: string | null; episodio?: number | null;
 }
+
+export interface EpisodioSerie {
+  id: string; episodio: number | null; titulo: string; resumen: string; listo: boolean; actualizado: number;
+}
+export interface Serie {
+  id: string; maestro: string; titulo: string; biblia: string; referencias: Referencia[]; episodios: string[];
+  episodios_info: EpisodioSerie[]; creado: number; actualizado: number; preparando: boolean; error: string | null;
+}
+export interface ResumenSerie { id: string; titulo: string; episodios: number; actualizado: number; preparando: boolean }
+
+export const series = {
+  listar: (mid: string) => pedir<{ series: ResumenSerie[] }>(`/maestros/${mid}/series`),
+  crear: (mid: string, desde: string) => pedir<Serie>(`/maestros/${mid}/series`, { method: "POST", ...json({ desde }) }),
+  ver: (mid: string, sid: string) => pedir<Serie>(`/maestros/${mid}/series/${sid}`),
+  cambiar: (mid: string, sid: string, cambios: { titulo?: string; biblia?: string; referencias?: Referencia[] }) =>
+    pedir<Serie>(`/maestros/${mid}/series/${sid}`, { method: "PATCH", ...json(cambios) }),
+  rehacerBiblia: (mid: string, sid: string) => pedir<Serie>(`/maestros/${mid}/series/${sid}/biblia`, { method: "POST" }),
+  episodio: (mid: string, sid: string, datos: { tema: string; modo: Creacion["modo"]; modelo: string }) =>
+    pedir<Creacion>(`/maestros/${mid}/series/${sid}/episodios`, { method: "POST", ...json(datos) }),
+  borrar: (mid: string, sid: string) => pedir<{ ok: boolean }>(`/maestros/${mid}/series/${sid}`, { method: "DELETE" }),
+  subirReferencia: (mid: string, sid: string, clave: string, archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<Serie>(`/maestros/${mid}/series/${sid}/referencias/${clave}`, { method: "POST", body: fd });
+  },
+  urlReferencia: (mid: string, sid: string, r: Referencia) =>
+    `${BASE}/maestros/${mid}/series/${sid}/referencias/${r.clave}?v=${encodeURIComponent(r.imagen || "")}`,
+};
 
 export const creaciones = {
   listar: (mid: string) => pedir<{ creaciones: ResumenCreacion[] }>(`/maestros/${mid}/creaciones`),

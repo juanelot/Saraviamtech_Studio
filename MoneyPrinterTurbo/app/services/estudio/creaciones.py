@@ -35,7 +35,7 @@ import uuid
 from loguru import logger
 
 from app.services import claude_cli
-from app.services.estudio import almacen, maestros, referencias
+from app.services.estudio import almacen, maestros, referencias, series
 
 MODELOS = ("sonnet", "opus")
 TIEMPO_MAX_S = 1500
@@ -149,17 +149,34 @@ def cargar(mid, cid):
     c["pensando"] = cid in _activas
     # Videos creados que la persona ya borro de "Mis videos": fuera de la lista.
     c["proyectos"] = [p for p in c.get("proyectos") or [] if os.path.isdir(almacen.dir_proyecto(p["id"]))]
+    c["serie_info"] = None
+    if c.get("serie"):
+        try:
+            s = series.cargar(mid, c["serie"])
+            c["serie_info"] = {"id": s["id"], "titulo": s["titulo"], "episodio": c.get("episodio")}
+        except series.ErrorSerie:
+            c["serie"] = None
     if c.get("entregables"):
-        c["entregables"].setdefault("referencias", [])
-        referencias.con_imagenes(mid, cid, c["entregables"]["referencias"])
+        refs = c["entregables"].setdefault("referencias", [])
+        if c["serie_info"]:
+            # Las de la serie se ven en cada episodio (heredadas: no se guardan en la creacion).
+            propias = {referencias.clave(r["nombre"]) for r in refs}
+            refs += [{**r, "heredada": True} for r in s["referencias"] if r["clave"] not in propias]
+        referencias.con_imagenes(carpeta_ref(mid, c), refs)
     return c
 
 
+def carpeta_ref(mid, c):
+    """Imagenes de referencia: las de la serie si es un episodio."""
+    return series.dir_ref(mid, c["serie"]) if c.get("serie") else referencias.dir_ref(mid, cid=c["id"])
+
+
 def _guardar(mid, c):
-    c = {k: v for k, v in c.items() if k != "pensando"}
+    c = {k: v for k, v in c.items() if k not in ("pensando", "serie_info")}
     if c.get("entregables"):
-        # `imagen` y `clave` de las referencias se calculan al cargar (ver referencias.con_imagenes).
-        c["entregables"] = {**c["entregables"], "referencias": referencias.limpiar(c["entregables"].get("referencias"))}
+        # `imagen` y `clave` se calculan al cargar; las heredadas son de la serie.
+        propias = [r for r in c["entregables"].get("referencias") or [] if not r.get("heredada")]
+        c["entregables"] = {**c["entregables"], "referencias": referencias.limpiar(propias)}
     c["actualizado"] = time.time()
     almacen.escribir_json(_ruta(mid, c["id"]), c)
 
@@ -178,12 +195,13 @@ def listar(mid):
         salida.append({"id": cid, "titulo": c["titulo"], "creado": c["creado"], "actualizado": c["actualizado"],
                        "pensando": c["pensando"], "turnos": len(c["turnos"]), "modo": c["modo"],
                        "terminada": bool(ultimo and (ultimo.get("app") or {}).get("tipo") == "fin"),
-                       "entregables": bool(c.get("entregables"))})
+                       "entregables": bool(c.get("entregables")), "serie": c.get("serie"),
+                       "episodio": c.get("episodio")})
     salida.sort(key=lambda x: x["actualizado"], reverse=True)
     return salida
 
 
-def crear(mid, tema="", modo="guiado", modelo="sonnet"):
+def crear(mid, tema="", modo="guiado", modelo="sonnet", serie=None):
     maestros.cargar(mid)
     modo = "auto" if modo == "auto" else "guiado"
     modelo = modelo if modelo in MODELOS else "sonnet"
@@ -194,7 +212,19 @@ def crear(mid, tema="", modo="guiado", modelo="sonnet"):
          "modo": modo, "modelo": modelo, "creado": ahora, "actualizado": ahora, "sesion": None,
          "turnos": [], "error": None, "auto_turnos": 0,
          "entregables": None, "entregables_estado": None, "entregables_error": None}
+    if serie:
+        try:
+            s = series.cargar(mid, serie)
+        except series.ErrorSerie as e:
+            raise ErrorCreacion(str(e)) from e
+        if s["preparando"]:
+            raise ErrorCreacion("espera a que Claude termine la biblia de la serie")
+        # El tema va en el contexto del episodio (ver series.contexto): no se reenvia.
+        c.update({"serie": serie, "episodio": series.siguiente_numero(mid, serie), "tema_usado": bool(tema)})
+        c["titulo"] = f"Episodio {c['episodio']}" + (f": {tema[:70]}" if tema else "")
     _guardar(mid, c)
+    if serie:
+        series.anadir_episodio(mid, serie, cid)
     _lanzar(mid, cid, None)
     return cargar(mid, cid)
 
@@ -349,10 +379,19 @@ def _turno(mid, c, texto):
         except Exception as e:  # noqa: BLE001
             logger.warning(f"creacion {c['id']}: no se pudo reanudar la sesion ({e}); se reempieza")
     if not c["turnos"] or texto is None:
-        return _llamar(PRIMER_MENSAJE.format(texto=original), c["modelo"])
+        return _llamar(PRIMER_MENSAJE.format(texto=original) + _serie(mid, c), c["modelo"])
     previos = c["turnos"][:-1]
     charla = "\n\n".join(f"{'PERSONA' if t['rol'] == 'persona' else 'CHAT'}: {t['texto']}" for t in previos)
-    return _llamar(REEMPEZAR.format(texto=original, charla=charla, mensaje=texto), c["modelo"])
+    return _llamar(REEMPEZAR.format(texto=original, charla=charla, mensaje=texto) + _serie(mid, c), c["modelo"])
+
+
+def _serie(mid, c):
+    if not c.get("serie"):
+        return ""
+    try:
+        return series.contexto(mid, c)
+    except series.ErrorSerie:
+        return ""
 
 
 def _llamar(mensaje, modelo, reanudar=None):
@@ -574,11 +613,13 @@ def editar_referencias(mid, cid, lista):
         c = cargar(mid, cid)
         if not c.get("entregables"):
             raise ErrorCreacion("todavia no hay entregables")
-        antes = {r["clave"] for r in c["entregables"]["referencias"]}
-        nuevas = referencias.limpiar(lista)
-        quedan = {referencias.clave(r["nombre"]) for r in nuevas}
-        for k in antes - quedan:
-            referencias.quitar_imagen(mid, cid, k)
+        heredadas = {r["clave"] for r in c["entregables"]["referencias"] if r.get("heredada")}
+        antes = {r["clave"] for r in c["entregables"]["referencias"]} - heredadas
+        nuevas = referencias.limpiar([r for r in lista or [] if isinstance(r, dict) and not r.get("heredada")])
+        quedan = {referencias.clave(r["nombre"]) for r in nuevas} | heredadas
+        if not c.get("serie"):  # en una serie la imagen es compartida: se conserva
+            for k in antes - quedan:
+                referencias.quitar_imagen(carpeta_ref(mid, c), k)
         for s in c["entregables"]["escenas"]:
             s["refs"] = [x for x in s.get("refs") or [] if referencias.clave(x) in quedan]
         c["entregables"]["referencias"] = nuevas
@@ -619,15 +660,34 @@ def subir_referencia(mid, cid, k, datos):
     if not ref:
         raise ErrorCreacion("referencia no encontrada")
     try:
-        referencias.guardar_imagen(mid, cid, ref["nombre"], datos)
+        referencias.guardar_imagen(carpeta_ref(mid, c), ref["nombre"], datos)
     except referencias.ErrorReferencia as err:
         raise ErrorCreacion(str(err)) from err
     return cargar(mid, cid)
 
 
 def quitar_referencia(mid, cid, k):
-    referencias.quitar_imagen(mid, cid, referencias.clave(k))
+    referencias.quitar_imagen(carpeta_ref(mid, cargar(mid, cid)), referencias.clave(k))
     return cargar(mid, cid)
+
+
+def ruta_referencia(mid, cid, k):
+    return referencias.ruta_imagen(carpeta_ref(mid, cargar(mid, cid)), referencias.clave(k))
+
+
+def convertir_en_serie(mid, cid):
+    """La creacion pasa a ser el episodio 1 de una serie nueva (ver series.py)."""
+    if cid in _activas:
+        raise ErrorCreacion("espera a que Claude termine de responder")
+    with almacen.candado(f"creacion-{cid}"):
+        c = cargar(mid, cid)
+        try:
+            sid = series.crear_desde(mid, c)
+        except series.ErrorSerie as e:
+            raise ErrorCreacion(str(e)) from e
+        c.update({"serie": sid, "episodio": 1})
+        _guardar(mid, c)
+    return sid
 
 
 def _texto(v):

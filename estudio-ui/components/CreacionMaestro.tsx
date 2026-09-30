@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Bot, CheckCircle2, Clapperboard, Download, FileText, Image as Imagen, Link2, Loader2, Merge, Pause, Play,
+  ArrowLeft, Bot, CheckCircle2, Clapperboard, Download, FileText, Image as Imagen, Library, Link2, Loader2, Merge, Pause, Play,
   RefreshCw, Send, Sparkles, Star, Trash2, Upload, Video, X,
 } from "lucide-react";
 import { AvisoError, Tarjeta } from "./ui";
 import TextoRico from "./TextoRico";
 import { Copiar } from "./paneles/PanelEscenas";
 import {
-  creaciones, maestros, ultimoFotograma, type Creacion, type EscenaEntregable, type Entregables, type FichaMaestro,
+  creaciones, maestros, series, ultimoFotograma, type Creacion, type EscenaEntregable, type Entregables, type FichaMaestro,
   type Narracion, type Referencia,
 } from "@/lib/api";
 
@@ -97,7 +97,14 @@ export default function CreacionMaestro({ id, cid }: { id: string; cid: string }
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <Link href={`/maestros/${id}`} className="boton boton-fantasma !px-2.5" aria-label="Volver"><ArrowLeft size={16} /></Link>
         <div className="min-w-0 flex-1">
-          <p className="etiqueta truncate">{nombreMaestro || "Prompt maestro"}</p>
+          <p className="etiqueta truncate">
+            {nombreMaestro || "Prompt maestro"}
+            {c.serie_info && (
+              <Link href={`/maestros/${id}/series/${c.serie_info.id}`} className="ml-1.5 text-acento hover:underline">
+                · Episodio {c.serie_info.episodio ?? "?"} de {c.serie_info.titulo}
+              </Link>
+            )}
+          </p>
           <input value={titulo} aria-label="Titulo" onChange={(e) => renombrar(e.target.value)}
             className="w-full bg-transparent font-display text-2xl font-semibold tracking-tight outline-none" />
         </div>
@@ -106,6 +113,23 @@ export default function CreacionMaestro({ id, cid }: { id: string; cid: string }
           onClick={() => accion(() => creaciones.cambiar(id, cid, { modo: auto ? "guiado" : "auto" }))}>
           {auto ? <><Pause size={15} /> Parar automatico</> : <><Play size={15} /> Automatico</>}
         </button>
+        {!c.serie_info && c.turnos.some((t) => t.rol === "claude") && (
+          <button className="boton boton-linea" disabled={ocupado || enviando}
+            title="Esta creacion pasa a ser el episodio 1; Claude escribe la biblia para los siguientes"
+            onClick={async () => {
+              if (!confirm("¿Convertir en serie? Esta creacion sera el episodio 1 y Claude escribira la biblia de la serie.")) return;
+              setEnviando(true);
+              try {
+                const s = await series.crear(id, cid);
+                router.push(`/maestros/${id}/series/${s.id}`);
+              } catch (e) {
+                setError(String((e as Error).message || e));
+                setEnviando(false);
+              }
+            }}>
+            <Library size={15} /> Hacer serie
+          </button>
+        )}
         <button className="boton boton-fantasma !px-2.5" title="Borrar esta creacion" disabled={ocupado}
           onClick={async () => {
             if (!confirm("¿Borrar esta creacion?")) return;
@@ -512,18 +536,19 @@ function PanelReferencias({ c, mid, ocupado, accion }: { c: Creacion; mid: strin
                   <div className="flex items-center gap-1.5">
                     <span className="truncate font-semibold">{r.nombre}</span>
                     <span className="text-xs text-tinta-3">· {TIPOS_REF[r.tipo]}</span>
-                    {r.origen === "claude" && <span title="Propuesta por Claude"><Sparkles size={11} className="text-acento" /></span>}
+                    {r.heredada ? <span className="text-xs text-acento" title="Viene de la serie: la imagen es comun a todos los episodios">· de la serie</span>
+                      : r.origen === "claude" && <span title="Propuesta por Claude"><Sparkles size={11} className="text-acento" /></span>}
                     <span className="ml-auto flex gap-0.5">
                       {r.imagen && (
                         <a className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-tinta" title="Descargar la imagen"
                           href={creaciones.urlReferencia(mid, c.id, r)} download={r.archivo || r.imagen}><Download size={13} /></a>
                       )}
-                      <button className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-red-500" disabled={ocupado}
+                      {!r.heredada && <button className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-red-500" disabled={ocupado}
                         title="Quitar esta referencia"
                         onClick={() => {
                           if (confirm(`¿Quitar la referencia "${r.nombre}"?`))
                             accion(() => creaciones.referencias(mid, c.id, refs.filter((x) => x.clave !== r.clave)));
-                        }}><X size={13} /></button>
+                        }}><X size={13} /></button>}
                     </span>
                   </div>
                   <p className="text-xs text-tinta-3">

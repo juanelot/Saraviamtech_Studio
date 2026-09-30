@@ -8,7 +8,8 @@ prompt maestro, o los propone Claude a partir de las escenas. La imagen que sube
 la persona se guarda por CLAVE (el nombre en minusculas y sin signos), asi que
 sobrevive a "Actualizar" los entregables mientras el nombre no cambie.
 
-    storage/estudio/maestros/<mid>/creaciones/<cid>/ref/<clave>.<ext>
+    storage/estudio/maestros/<mid>/creaciones/<cid>/ref/<clave>.<ext>   creacion suelta
+    storage/estudio/maestros/<mid>/series/<sid>/ref/<clave>.<ext>       episodios de una serie (compartidas)
 """
 import io
 import os
@@ -34,15 +35,14 @@ def clave(nombre):
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:40] or "referencia"
 
 
-def dir_ref(mid, cid, crear=False):
-    ruta = os.path.join(maestros._dir(mid), "creaciones", cid, "ref")
-    if crear:
-        os.makedirs(ruta, exist_ok=True)
-    return ruta
+def dir_ref(mid, cid=None, sid=None):
+    """Carpeta de imagenes: la de la serie si la creacion es un episodio."""
+    if sid:
+        return os.path.join(maestros._dir(mid), "series", sid, "ref")
+    return os.path.join(maestros._dir(mid), "creaciones", cid, "ref")
 
 
-def ruta_imagen(mid, cid, k):
-    carpeta = dir_ref(mid, cid)
+def ruta_imagen(carpeta, k):
     for ext in EXT:
         ruta = os.path.join(carpeta, k + ext)
         if os.path.isfile(ruta):
@@ -50,16 +50,16 @@ def ruta_imagen(mid, cid, k):
     return None
 
 
-def con_imagenes(mid, cid, refs):
+def con_imagenes(carpeta, refs):
     """Marca en cada referencia si ya tiene imagen subida (`imagen`: nombre de archivo o None)."""
     for r in refs:
-        ruta = ruta_imagen(mid, cid, clave(r["nombre"]))
+        ruta = ruta_imagen(carpeta, clave(r["nombre"]))
         r["clave"] = clave(r["nombre"])
         r["imagen"] = os.path.basename(ruta) if ruta else None
     return refs
 
 
-def guardar_imagen(mid, cid, nombre, datos: bytes):
+def guardar_imagen(carpeta, nombre, datos: bytes):
     try:
         im = Image.open(io.BytesIO(datos))
         im.verify()
@@ -70,14 +70,15 @@ def guardar_imagen(mid, cid, nombre, datos: bytes):
     if not ext:
         raise ErrorReferencia("usa PNG, JPG o WEBP")
     k = clave(nombre)
-    quitar_imagen(mid, cid, k)
-    with open(os.path.join(dir_ref(mid, cid, crear=True), k + ext), "wb") as f:
+    quitar_imagen(carpeta, k)
+    os.makedirs(carpeta, exist_ok=True)
+    with open(os.path.join(carpeta, k + ext), "wb") as f:
         f.write(datos)
 
 
-def quitar_imagen(mid, cid, k):
+def quitar_imagen(carpeta, k):
     while True:
-        ruta = ruta_imagen(mid, cid, k)
+        ruta = ruta_imagen(carpeta, k)
         if not ruta:
             return
         os.remove(ruta)
