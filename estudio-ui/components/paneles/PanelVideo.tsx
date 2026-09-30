@@ -19,7 +19,10 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
   useEffect(() => { listarMusica().then(setCanciones); }, []);
 
   const s = (k: string) => (v: unknown) => set("render", k, v);
-  const vertical = r.aspecto === "9:16";
+  // Por las medidas del video YA montado (el formato elegido puede haber cambiado despues).
+  const ancho = et.salida?.ancho || 0, alto = et.salida?.alto || 0;
+  const vertical = ancho && alto ? alto > ancho * 1.05 : r.aspecto === "9:16";
+  const cuadrado = ancho > 0 && Math.abs(ancho - alto) <= ancho * 0.05;
   const editorial = r.edicion === "editorial";
 
   async function subirMusica(f: File | undefined) {
@@ -39,7 +42,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
         <Tarjeta>
           {et.salida ? (
             <>
-              <div className={`mx-auto overflow-hidden rounded-xl bg-black ${vertical ? "max-w-[320px]" : ""}`}>
+              <div className={`mx-auto overflow-hidden rounded-xl bg-black ${vertical ? "max-w-[320px]" : cuadrado ? "max-w-[480px]" : ""}`}>
                 <video key={et.terminado} controls className="w-full" src={url.archivo(id, et.salida.mp4, et.terminado)} />
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

@@ -99,10 +99,10 @@ export default function PaginaMaestros() {
             <li key={m.id}>
               <Link href={`/maestros/${m.id}`}
                 className="group block overflow-hidden rounded-2xl border border-linea bg-tarjeta transition hover:border-tinta-3 hover:shadow-sm">
-                <div className="relative aspect-video bg-hundido">
+                <div className="relative aspect-video overflow-hidden bg-hundido">
                   {m.portada ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={maestros.portada(m.id, m.actualizado)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={maestros.portada(m.id, m.actualizado)} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
                   ) : (
                     <div className="bg-marca grid h-full place-items-center opacity-80"><BookOpen size={30} className="text-[#0b0d17]" /></div>
                   )}

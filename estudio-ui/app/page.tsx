@@ -136,16 +136,16 @@ export default function Inicio() {
             <li key={p.id} className="group flex flex-col overflow-hidden rounded-2xl border border-linea bg-tarjeta transition hover:shadow-md">
               <button
                 onClick={() => (p.mp4 ? setViendo(p) : router.push(`/p/${p.id}`))}
-                className="relative aspect-video bg-hundido text-left"
+                className="relative aspect-video overflow-hidden bg-hundido text-left"
                 title={p.mp4 ? "Reproducir" : "Abrir"}
               >
                 {p.mp4 ? (
                   <>
                     {p.portada ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={url.archivo(p.id, p.portada, p.actualizado)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      <img src={url.archivo(p.id, p.portada, p.actualizado)} alt="" className="absolute inset-0 h-full w-full bg-black object-contain" loading="lazy" />
                     ) : (
-                      <video src={`${url.archivo(p.id, p.mp4, p.actualizado)}#t=1`} className="h-full w-full object-cover" muted preload="metadata" />
+                      <video src={`${url.archivo(p.id, p.mp4, p.actualizado)}#t=1`} className="absolute inset-0 h-full w-full bg-black object-contain" muted preload="metadata" />
                     )}
                     <span className="absolute inset-0 grid place-items-center bg-black/0 transition group-hover:bg-black/30">
                       <span className="grid h-12 w-12 place-items-center rounded-full bg-white/90 text-tinta opacity-0 shadow transition group-hover:opacity-100">

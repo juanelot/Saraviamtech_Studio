@@ -24,6 +24,7 @@ function VideoCard({ video, onDelete }: { video: VideoItem; onDelete: () => void
   const [deleteError, setDeleteError] = useState("");
   const [showChapters, setShowChapters] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [ratio, setRatio] = useState<number | null>(null);
 
   const handleCopyChapters = async () => {
     if (!video.chapters) return;
@@ -77,13 +78,18 @@ function VideoCard({ video, onDelete }: { video: VideoItem; onDelete: () => void
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(139,92,246,0.3)")}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")}
     >
-      {/* Video preview con controles nativos */}
-      <div style={{ background: "#000", aspectRatio: "9/16", maxHeight: 340, overflow: "hidden" }}>
+      {/* Video preview con controles nativos. La caja toma la proporcion REAL del
+          video (16:9, 9:16, 1:1...) al leer sus metadatos; hasta entonces, 9:16. */}
+      <div style={{ background: "#000", aspectRatio: ratio ? String(ratio) : "9/16", maxHeight: 340, overflow: "hidden" }}>
         <video
           ref={videoRef}
           src={video.streamUrl}
           controls
           preload="metadata"
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight);
+          }}
           style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
         />
       </div>
