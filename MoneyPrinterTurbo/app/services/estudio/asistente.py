@@ -89,6 +89,11 @@ En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Vid
   cambian los planos, los recursos/descripciones, el criterio o el modelo.
 - Video (render): un clip por plano con ffmpeg (cacheado) y acabado rapido con ffmpeg
   (subtitulos ASS + voz + musica) o clasico MPT (MoviePy, lento).
+- Edicion editorial (render, render.edicion="editorial", edicion.py): subtitulos palabra
+  a palabra con clave en color, rotulos de datos, sfx (whoosh/golpe) + musica bajo la voz,
+  ritmo (subcortes con otro encuadre los primeros 30 s), zoom en revelaciones, color
+  (ed_look natural/calido/cine/frio) y gancho. Claude marca en una pasada cacheada
+  (render/marcas.json). Necesita acabado rapido. Voz guarda voz/palabras.json.
 - Miniatura (fuera del grafo, usable en cualquier momento): Claude propone conceptos con
   prompt para Flow (con o sin texto en la imagen) a partir del guion, el estilo de Escenas,
   una miniatura de REFERENCIA opcional (copia su estilo, no su contenido) y hasta 4

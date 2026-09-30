@@ -48,6 +48,27 @@ OPCIONES = {
     "sfx_volumen": 1.0,
     "ed_modelo": "sonnet",
     "ed_esfuerzo": "low",
+    # etapa 2
+    "ed_ritmo": True,             # primeros segundos con subcortes cada ~3 s
+    "ed_zoom": True,              # acercamiento en las revelaciones
+    "ed_color": True,
+    "ed_look": "natural",         # natural | calido | cine | frio
+    "ed_gancho": True,
+    "gancho_texto": "",           # vacio = el que propone Claude
+}
+RITMO_HASTA_S = 30.0   # tramo inicial con cortes mas rapidos
+RITMO_PIEZA_S = 3.0
+PIEZA_MIN_S = 1.2
+ENCUADRE_ALT = 1.12    # encuadre mas cerrado de los subcortes de ritmo
+ENCUADRE_REVELACION = 1.16
+
+# Ajuste de color comun + vineta leve + grano fino (temporal) para que imagenes de
+# distintas fuentes parezcan de la misma pelicula.
+LOOKS = {
+    "natural": "eq=contrast=1.06:saturation=1.08:gamma=0.98",
+    "calido": "colorbalance=rm=0.04:gm=0.01:bm=-0.05:rh=0.03:bh=-0.03,eq=contrast=1.06:saturation=1.05",
+    "cine": "colorbalance=rs=-0.05:bs=0.05:rh=0.05:bh=-0.05,eq=contrast=1.08:saturation=1.03",
+    "frio": "colorbalance=rm=-0.03:bm=0.05,eq=contrast=1.05:saturation=0.95",
 }
 TANDA = 220           # lineas de subtitulo por llamada a Claude
 SR = 44100            # pista de efectos
@@ -314,6 +335,12 @@ def _eventos_rotulos(lineas, marcas_, opts, p, w, h):
     return salida, estilos
 
 
+def texto_gancho(marcas_, opts):
+    if not opts["ed_gancho"]:
+        return ""
+    return (str(opts.get("gancho_texto") or "").strip() or str(marcas_.get("gancho") or "").strip())[:60]
+
+
 def escribir_ass(destino, lineas, por_linea, marcas_, opts, p, w, h):
     estilo, prefijo = acabado.estilo_base(p, w, h)
     estilos, eventos = [estilo], []
@@ -336,6 +363,17 @@ def escribir_ass(destino, lineas, por_linea, marcas_, opts, p, w, h):
         ev, st = _eventos_rotulos(lineas, marcas_, opts, p, w, h)
         eventos += ev
         estilos += st
+    gancho = texto_gancho(marcas_, opts)
+    if gancho:
+        tam = int(p["tam_fuente"])
+        vertical = h > w
+        estilos.append(
+            f"Style: Gancho,{acabado.familia_fuente(p['fuente'])},{int(tam * (1.25 if vertical else 1.45))},"
+            f"&H00FFFFFF,&H000000FF,&H00101010,&H96000000,-1,0,0,0,100,100,1,0,1,3,3,8,"
+            f"{int(w * 0.08)},{int(w * 0.08)},{int(h * (0.2 if vertical else 0.14))},1")
+        eventos.append((3, 0.15, 2.6, "Gancho",
+                        "{\\fad(250,400)\\fscx94\\fscy94\\t(0,450,\\fscx100\\fscy100)}"
+                        + acabado.limpio(gancho.upper())))
     filas = [f"Dialogue: {capa},{acabado._t_ass(a)},{acabado._t_ass(b)},{est},,0,0,0,,{txt}"
              for capa, a, b, est, txt in sorted(eventos, key=lambda e: (e[1], e[0]))]
     with open(destino, "w", encoding="utf-8") as f:
@@ -412,20 +450,69 @@ def pista_sfx(destino, duracion, eventos):
 
 # ------------------------------------------------------------------ todo junto
 
+def filtro_color(opts):
+    if not opts["ed_color"]:
+        return None
+    base = LOOKS.get(opts["ed_look"], LOOKS["natural"])
+    return f"{base},vignette=angle=PI/5,noise=alls=3:allf=t"  # grano fino: mas fuerte duplica el peso del MP4
+
+
+def lineas_y_marcas(ctx, voz, p):
+    """(lineas del SRT, marcas de Claude). Las marcas se cachean: llamarlo dos
+    veces en el mismo render no repite la llamada."""
+    opts = opciones(p)
+    srt = ctx.dir(voz["srt"], crear=False)
+    lineas = acabado.lineas_srt(srt) if os.path.isfile(srt) else []
+    vacio = {"resaltar": [], "rotulos": [], "revelaciones": [], "gancho": ""}
+    if not lineas:
+        return lineas, vacio
+    return lineas, marcas(ctx.dir("render"), lineas, opts, lambda m: ctx.avisar(m, 3))
+
+
+def subcortes(planos, lineas, marcas_, opts):
+    """Parte los planos en PIEZAS (mismo recurso, otro encuadre) para dar ritmo:
+      - ritmo: en los primeros RITMO_HASTA_S, planos largos en piezas de ~3 s
+        alternando encuadre normal y cerrado;
+      - zoom: en cada revelacion, lo que sigue entra mas cerca (punch-in).
+    Cada pieza: dict del plano + inicio/fin propios, "encuadre" y "desde" (segundos
+    desde el inicio del plano, para el offset de los videos)."""
+    revel = sorted(lineas[i][0] for i in (marcas_.get("revelaciones") or [])
+                   if isinstance(i, int) and 0 <= i < len(lineas)) if opts["ed_zoom"] else []
+    piezas = []
+    for x in planos:
+        a, b = float(x["inicio"]), float(x["fin"])
+        cortes = [(a, 1.0)]
+        if opts["ed_ritmo"] and a < RITMO_HASTA_S and b - a > RITMO_PIEZA_S + 0.4:
+            n = int(-(-(b - a) // RITMO_PIEZA_S))
+            paso = (b - a) / n
+            # Solo se corta dentro del tramo inicial; la ultima pieza sigue hasta el final del plano.
+            cortes = [(a + k * paso, 1.0 if k % 2 == 0 else ENCUADRE_ALT) for k in range(n)
+                      if k == 0 or a + k * paso < RITMO_HASTA_S]
+        for t in revel:
+            if a + PIEZA_MIN_S <= t <= b - PIEZA_MIN_S:
+                previo = max(c for c in cortes if c[0] <= t)
+                cortes = [c for c in cortes if abs(c[0] - t) >= PIEZA_MIN_S or c[0] == a]
+                cortes.append((t, max(ENCUADRE_REVELACION, previo[1] + 0.06)))
+        cortes.sort()
+        for k, (ini, enc) in enumerate(cortes):
+            fin = cortes[k + 1][0] if k + 1 < len(cortes) else b
+            if fin - ini < 0.05:
+                continue
+            piezas.append({**x, "inicio": ini, "fin": fin, "encuadre": round(enc, 3),
+                           "desde": round(ini - a, 3), "pieza": k})
+    return piezas
+
+
 def preparar(ctx, voz, planos, p, w, h, duracion):
     """Deja listos render/subtitulos.ass y render/sfx.wav. Devuelve
     {"ass": ruta|None, "sfx": ruta|None, "ducking": bool, "resumen": str}."""
     opts = opciones(p)
     carpeta = ctx.dir("render")
-    srt = ctx.dir(voz["srt"], crear=False)
-    lineas = acabado.lineas_srt(srt) if os.path.isfile(srt) else []
+    lineas, marcas_ = lineas_y_marcas(ctx, voz, p)
     por_linea = palabras_por_linea(lineas, ctx.dir("voz", "palabras.json", crear=False))
-    necesita_claude = bool(lineas) and (opts["ed_palabras"] or opts["ed_rotulos"] or opts["ed_sonido"])
-    marcas_ = (marcas(carpeta, lineas, opts, lambda m: ctx.avisar(m, 73)) if necesita_claude
-               else {"resaltar": [], "rotulos": [], "revelaciones": [], "gancho": ""})
 
     ass = None
-    if (p.get("subtitulos", True) and lineas) or opts["ed_rotulos"]:
+    if (p.get("subtitulos", True) and lineas) or opts["ed_rotulos"] or texto_gancho(marcas_, opts):
         ass = os.path.join(carpeta, "subtitulos.ass")
         escribir_ass(ass, lineas, por_linea, marcas_, opts, p, w, h)
 
@@ -445,7 +532,9 @@ def preparar(ctx, voz, planos, p, w, h, duracion):
             pista_sfx(sfx, duracion, eventos)
 
     n_claves = sum(len(v) for v in _resaltados(marcas_, por_linea).values()) if lineas else 0
+    gancho = texto_gancho(marcas_, opts)
     resumen = (f"edicion editorial: {n_claves} palabras clave, {len(marcas_.get('rotulos') or [])} rotulos, "
-               f"{len(marcas_.get('revelaciones') or [])} revelaciones")
+               f"{len(marcas_.get('revelaciones') or [])} revelaciones"
+               + (f", gancho «{gancho}»" if gancho else ""))
     return {"ass": ass, "sfx": sfx, "ducking": bool(opts["ed_sonido"]), "resumen": resumen,
-            "gancho": marcas_.get("gancho", "")}
+            "gancho": marcas_.get("gancho", ""), "color": filtro_color(opts)}

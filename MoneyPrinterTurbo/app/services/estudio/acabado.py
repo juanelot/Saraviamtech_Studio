@@ -141,10 +141,11 @@ def _ruta_filtro(ruta: str, cwd: str) -> str:
 
 def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
            duracion: float, destino: str, ass: str | None = None, sfx: str | None = None,
-           ducking: bool = False):
+           ducking: bool = False, color: str | None = None):
     """`ass`: subtitulos ya preparados (edicion editorial) en vez de convertir `srt`.
     `sfx`: pista de efectos (misma duracion que el video). `ducking`: la musica
-    baja sola mientras habla la voz."""
+    baja sola mientras habla la voz. `color`: filtros de color/grano que van ANTES
+    de los subtitulos (el texto no se tine ni lleva grano)."""
     ff = medios.ffmpeg()
     carpeta = os.path.dirname(destino)
     musica = mpt_video.get_bgm_file(bgm_type="random" if p.get("musica") else "",
@@ -160,9 +161,12 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
     if srt and not ass:
         ass = os.path.join(carpeta, "subtitulos.ass")
         srt_a_ass(srt, ass, p, w, h)
-    if ass:
-        filtros.append(f"[0:v]subtitles={_ruta_filtro(ass, carpeta)}:"
-                       f"fontsdir={_ruta_filtro(utils.font_dir(), carpeta)}[v]")
+    if ass or color:
+        cadena = [color] if color else []
+        if ass:
+            cadena.append(f"subtitles={_ruta_filtro(ass, carpeta)}:"
+                          f"fontsdir={_ruta_filtro(utils.font_dir(), carpeta)}")
+        filtros.append("[0:v]" + ",".join(cadena) + "[v]")
     vv = float(p["volumen_voz"])
     pistas = ["[voz]"]
     if musica and ducking:
@@ -188,10 +192,11 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
                        "dropout_transition=0:normalize=0[a]")
     else:
         filtros.append("[voz]anull[a]")
+    recodificar = bool(ass or color)
     args += ["-filter_complex", ";".join(filtros),
-             "-map", "[v]" if ass else "0:v", "-map", "[a]"]
+             "-map", "[v]" if recodificar else "0:v", "-map", "[a]"]
 
-    if ass:
+    if recodificar:
         codec = mpt_video._get_effective_video_codec(p.get("codec") or None)
         args += ["-c:v", codec]
         if codec in ("libx264", "libx265"):

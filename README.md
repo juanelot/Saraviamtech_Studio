@@ -178,6 +178,18 @@ material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐ 
   Después generas el contenido tú mismo y en **Contenido** subes la carpeta de la extensión (`images/` y `videos/`), un ZIP o archivos sueltos. Cada archivo va a su escena según el número de su nombre (`1.png`, `scene_2.mp4`); si una escena tiene imagen y video, se usa el video. Al final revisas en **Ajuste** y montas el video.
 
   Con el CLI: `--asignacion escenas --generar imagenes_videos --hasta escenas --exportar-json ./carpeta/script.json`, y después `--proyecto <id> --contenido-dir ./carpeta`.
+- **Edición editorial.** En el paso Video eliges el estilo *Clásico* o *Editorial*. El editorial aplica efectos sobrios de documental; cada uno se activa o desactiva por separado:
+  - **Subtítulos palabra por palabra:** la palabra que suena se ilumina y la palabra clave de cada frase va en color.
+  - **Rótulos:** cifras, fechas y nombres aparecen con una barra y un fundido.
+  - **Sonido:** whoosh en los cortes, un golpe grave en las revelaciones y la música baja sola cuando habla la voz.
+  - **Ritmo de entrada:** en los primeros 30 s hay cortes cada unos 3 s, alternando el encuadre de la misma imagen.
+  - **Zoom** en las revelaciones.
+  - **Color unificado:** cuatro tonos a elegir, con viñeta y grano fino.
+  - **Gancho** sobreimpreso en los primeros 2 s.
+
+  Claude marca las palabras clave, los datos, las revelaciones y el gancho en una sola pasada (unos segundos). Esa pasada se guarda en caché, así que cambiar colores o volúmenes no vuelve a llamarlo. Todo se hace con ffmpeg y libass, sin Remotion.
+
+  Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/whoosh.(wav|mp3)` y `golpe.(wav|mp3)`. Si no los hay, se generan solos.
 - **Miniatura.** Es el último paso, aunque se puede abrir en cualquier momento; si ya tienes la miniatura, súbela desde el principio. Claude propone de 1 a 5 conceptos, cada uno con el texto de la miniatura y el prompt listo para Flow. Si quieres poner el texto tú, también da la versión sin texto, para Canva.
 
   Para proponerlos se basa en el guion, el estilo de Escenas, hasta 4 imágenes del proyecto y, si la subes, una **miniatura de referencia**, de la que copia el estilo y no el contenido. También indica qué imagen de escena conviene usar como referencia en Flow. Luego generas la miniatura, la subes, y queda como portada en Mis videos y lista para descargar. No usa APIs de imagen, solo Claude CLI (~1 min).

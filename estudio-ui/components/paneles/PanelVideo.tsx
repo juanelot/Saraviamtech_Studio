@@ -103,6 +103,26 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                       formato={(x) => `${Math.round(x * 100)}%`} />
                   </Campo>
                 )}
+                <Interruptor valor={r.ed_ritmo !== false} onChange={s("ed_ritmo")}
+                  titulo="Ritmo de entrada" detalle="En los primeros 30 s, cortes cada ~3 s alternando el encuadre de la misma imagen." />
+                <Interruptor valor={r.ed_zoom !== false} onChange={s("ed_zoom")}
+                  titulo="Zoom en las revelaciones" detalle="La imagen se acerca un poco justo en los momentos clave." />
+                <Interruptor valor={r.ed_color !== false} onChange={s("ed_color")}
+                  titulo="Color unificado" detalle="Mismo tono, vineta leve y grano fino: todas las imagenes parecen de la misma pelicula." />
+                {r.ed_color !== false && (
+                  <Campo etiqueta="Tono" className="pl-7">
+                    <Segmentado valor={(r.ed_look as string) || "natural"} onChange={s("ed_look")}
+                      opciones={[{ v: "natural", t: "Natural" }, { v: "calido", t: "Calido" }, { v: "cine", t: "Cine" }, { v: "frio", t: "Frio" }]} />
+                  </Campo>
+                )}
+                <Interruptor valor={r.ed_gancho !== false} onChange={s("ed_gancho")}
+                  titulo="Gancho de entrada" detalle="Una frase corta sobreimpresa los primeros 2 segundos." />
+                {r.ed_gancho !== false && (
+                  <Campo etiqueta="Texto del gancho" ayuda="Vacio = lo propone Claude a partir del guion." className="pl-7">
+                    <input className="campo" maxLength={60} placeholder="Ej.: Nadie te conto esto"
+                      value={(r.gancho_texto as string) || ""} onChange={(e) => set("render", "gancho_texto", e.target.value)} />
+                  </Campo>
+                )}
                 {r.acabado === "clasico" && (
                   <p className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">El estilo editorial necesita el acabado Rapido (en Motor).</p>
                 )}
