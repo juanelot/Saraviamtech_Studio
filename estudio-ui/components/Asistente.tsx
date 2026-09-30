@@ -116,7 +116,7 @@ export default function Asistente() {
       {abierto && (
         <div className={`fixed right-4 ${proyecto ? "bottom-40" : "bottom-24"} z-40 flex h-[560px] max-h-[70vh] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-linea bg-tarjeta shadow-2xl`}>
           <div className="flex items-center gap-2 border-b border-linea px-4 py-3">
-            <span className="grid h-7 w-7 place-items-center rounded-full bg-acento text-white"><MessageCircle size={14} /></span>
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-marca text-[#0b0d17]"><MessageCircle size={14} /></span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">Asistente</p>
               <p className="truncate text-[11px] text-tinta-3">
@@ -146,7 +146,7 @@ export default function Asistente() {
             {charla?.turnos.map((t, i) => (
               <div key={i} className={t.rol === "persona" ? "flex justify-end" : ""}>
                 <div className={`max-w-[92%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 leading-relaxed ${
-                  t.rol === "persona" ? "bg-acento text-white" : "bg-hundido"}`}>
+                  t.rol === "persona" ? "bg-acento text-sobre-acento" : "bg-hundido"}`}>
                   {t.rol === "persona" ? t.texto : <Texto texto={t.texto} />}
                 </div>
               </div>
@@ -184,7 +184,7 @@ export default function Asistente() {
 
       <button
         onClick={alternar}
-        className={`fixed right-4 ${abajo} z-40 grid h-12 w-12 place-items-center rounded-full bg-acento text-white shadow-lg transition hover:scale-105`}
+        className={`fixed right-4 ${abajo} z-40 grid h-12 w-12 place-items-center rounded-full bg-marca text-[#0b0d17] shadow-lg transition hover:scale-105`}
         title="Asistente"
         aria-label="Abrir asistente"
       >

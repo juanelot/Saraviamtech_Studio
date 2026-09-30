@@ -214,7 +214,7 @@ export default function Proyecto({ id }: { id: string }) {
                 <div className="flex items-center gap-2">
                   <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
                     est === "ok" ? "bg-ok text-white"
-                      : est === "ejecutando" ? "latido bg-acento text-white"
+                      : est === "ejecutando" ? "latido bg-acento text-sobre-acento"
                       : est === "error" ? "bg-error text-white"
                       : est === "obsoleta" ? "bg-aviso text-white"
                       : "bg-hundido text-tinta-3"}`}>
@@ -276,7 +276,7 @@ export default function Proyecto({ id }: { id: string }) {
                   <span className="tabular-nums text-tinta-3">{vista.trabajo.progreso}%</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-hundido">
-                  <div className="h-full rounded-full bg-acento transition-all" style={{ width: `${vista.trabajo.progreso}%` }} />
+                  <div className="bg-marca h-full rounded-full transition-all" style={{ width: `${vista.trabajo.progreso}%` }} />
                 </div>
               </div>
               <button className="boton boton-linea !py-1.5 text-xs" onClick={() => api.cancelar(id).then(recargar)}>

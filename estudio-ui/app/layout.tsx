@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Inter, Sora } from "next/font/google";
 import "./globals.css";
 import { MARCA } from "@/lib/marca";
 import Barra from "@/components/Barra";
 import Asistente from "@/components/Asistente";
 
-const display = Fraunces({ subsets: ["latin"], variable: "--fuente-display", weight: ["500", "600", "700"] });
+const display = Sora({ subsets: ["latin"], variable: "--fuente-display", weight: ["500", "600", "700"] });
 const texto = Inter({ subsets: ["latin"], variable: "--fuente-texto" });
 
 export const metadata: Metadata = {

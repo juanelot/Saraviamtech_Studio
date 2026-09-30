@@ -1,41 +1,45 @@
 @import "tailwindcss";
 
-/* Paleta propia: papel + tinta + terracota. Claro por defecto, oscuro por sistema. */
+/* Paleta de la marca Saraviamtech: neutros frios + degradado celeste -> lila -> rosa
+   del logo. Claro por defecto, oscuro por sistema. */
 :root {
-  --papel: #f5f1ea;
-  --tarjeta: #fffdf9;
-  --hundido: #ece6dc;
-  --tinta: #1c1a17;
-  --tinta-2: #5f5950;
-  --tinta-3: #948c80;
-  --linea: #e0d8cb;
-  --acento: #d9502a;
-  --acento-suave: #f8e1d7;
-  --ok: #1f7a5f;
-  --ok-suave: #dcefe7;
+  --papel: #f6f7fb;
+  --tarjeta: #ffffff;
+  --hundido: #eceff6;
+  --tinta: #0b0d17;
+  --tinta-2: #4f5670;
+  --tinta-3: #858ba3;
+  --linea: #e1e5ef;
+  --acento: #7b5cff;
+  --acento-suave: #ece7ff;
+  --sobre-acento: #ffffff;
+  --ok: #16825f;
+  --ok-suave: #daf1e8;
   --aviso: #b7791f;
   --aviso-suave: #f6ead2;
-  --error: #b3261e;
-  --error-suave: #f7dcd9;
+  --error: #c0262d;
+  --error-suave: #f9dde0;
+  --marca: linear-gradient(90deg, #84d4ff 0%, #b4adfe 50%, #e882fc 100%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --papel: #13120f;
-    --tarjeta: #1c1a16;
-    --hundido: #24211c;
-    --tinta: #f2ede5;
-    --tinta-2: #b0a89b;
-    --tinta-3: #7c7568;
-    --linea: #312d27;
-    --acento: #ff6a3d;
-    --acento-suave: #3a2219;
-    --ok: #46b893;
-    --ok-suave: #16302a;
+    --papel: #0b0d14;
+    --tarjeta: #12151f;
+    --hundido: #1a1e2b;
+    --tinta: #eef1fa;
+    --tinta-2: #a9afc4;
+    --tinta-3: #6f7690;
+    --linea: #252a3a;
+    --acento: #b9a4ff;
+    --acento-suave: #251f40;
+    --sobre-acento: #0b0d17;
+    --ok: #46c29a;
+    --ok-suave: #12302a;
     --aviso: #e0a64a;
     --aviso-suave: #33291a;
-    --error: #f0776d;
-    --error-suave: #3a1c1a;
+    --error: #f27a80;
+    --error-suave: #3a1a20;
   }
 }
 
@@ -49,6 +53,7 @@
   --color-linea: var(--linea);
   --color-acento: var(--acento);
   --color-acento-suave: var(--acento-suave);
+  --color-sobre-acento: var(--sobre-acento);
   --color-ok: var(--ok);
   --color-ok-suave: var(--ok-suave);
   --color-aviso: var(--aviso);
@@ -85,8 +90,11 @@ textarea.campo { line-height: 1.55; resize: vertical; }
 }
 .boton:active { transform: scale(.97); }
 .boton:disabled { opacity: .45; pointer-events: none; }
-.boton-acento { background: var(--acento); color: #fff; }
-.boton-acento:hover { filter: brightness(1.06); }
+.boton-acento { background: var(--marca); color: #0b0d17; box-shadow: 0 1px 10px -3px #b4adfe; }
+.boton-acento:hover { filter: brightness(1.05) saturate(1.1); }
+
+.bg-marca { background: var(--marca); }
+.texto-marca { background: var(--marca); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .boton-linea { border: 1px solid var(--linea); background: var(--tarjeta); color: var(--tinta); }
 .boton-linea:hover { border-color: var(--tinta-3); }
 .boton-fantasma { color: var(--tinta-2); }

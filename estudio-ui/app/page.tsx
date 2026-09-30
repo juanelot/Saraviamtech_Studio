@@ -83,7 +83,11 @@ export default function Inicio() {
     <main className="mx-auto max-w-6xl px-4 pb-24 pt-12">
       <section className="mb-12 grid gap-8 md:grid-cols-[1.2fr_1fr] md:items-end">
         <div>
-          <p className="etiqueta mb-3">Estudio de video</p>
+          <p className="etiqueta mb-3 flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={MARCA.logo.icono} alt="" className="h-5 w-5" />
+            Estudio de video
+          </p>
           <h1 className="font-display text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
             {MARCA.eslogan}
           </h1>
@@ -158,7 +162,7 @@ export default function Inicio() {
                   </div>
                 )}
                 {p.trabajando && (
-                  <span className="latido absolute left-3 top-3 rounded-full bg-acento px-2.5 py-0.5 text-xs font-semibold text-white">
+                  <span className="latido absolute left-3 top-3 rounded-full bg-acento px-2.5 py-0.5 text-xs font-semibold text-sobre-acento">
                     trabajando
                   </span>
                 )}

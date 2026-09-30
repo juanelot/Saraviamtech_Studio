@@ -105,7 +105,7 @@ export default function PanelRecursos({ id, vista, p, set, ejecutar, ocupado, re
         </span>
         {modoEscenas && (
           <span className={`absolute bottom-2 left-2 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
-            escena != null ? "bg-acento text-white" : "bg-error text-white"}`}>
+            escena != null ? "bg-acento text-sobre-acento" : "bg-error text-white"}`}>
             {escena != null ? `Escena ${escena}` : "sin numero"}
           </span>
         )}

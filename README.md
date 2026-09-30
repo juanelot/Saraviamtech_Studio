@@ -161,7 +161,7 @@ en `resource/songs`) y **Personalizada**:
 
 ## Estudio por etapas (`estudio-ui/` + `estudio_cli.py`)
 
-App aparte, con marca propia (el nombre está en `estudio-ui/lib/marca.ts`), que usa este mismo backend como motor. En lugar de ir a Pexels o generar imágenes, trabaja con **tus recursos**: imágenes y videos mezclados, subidos, en una carpeta del servidor o como URLs. **Claude CLI** hace el trabajo de texto con tu suscripción, sin API key.
+App aparte, con la marca Saraviamtech (nombre y rutas de los logos en `estudio-ui/lib/marca.ts`; los logos están en `estudio-ui/public/marca/`, el favicon en `estudio-ui/app/icon.png` y los colores en `app/globals.css`), que usa este mismo backend como motor. En lugar de ir a Pexels o generar imágenes, trabaja con **tus recursos**: imágenes y videos mezclados, subidos, en una carpeta del servidor o como URLs. **Claude CLI** hace el trabajo de texto con tu suscripción, sin API key.
 
 ```
 material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐   ← contenido creado por ti en Flow / extensión
