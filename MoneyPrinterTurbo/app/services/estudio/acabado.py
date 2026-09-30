@@ -62,7 +62,8 @@ def _srt_t(ts: str) -> float:
     return int(h) * 3600 + int(m) * 60 + float(s)
 
 
-def srt_a_ass(srt: str, ass: str, p: dict, w: int, h: int):
+def estilo_base(p: dict, w: int, h: int):
+    """(linea `Style: Default,...`, prefijo de posicion para cada Dialogue)."""
     tam = int(p["tam_fuente"])
     posicion = p["sub_posicion"]
     alineacion, margen_v, prefijo = 2, int(h * 0.12), ""
@@ -80,7 +81,14 @@ def srt_a_ass(srt: str, ass: str, p: dict, w: int, h: int):
         borde, contorno, sombra = 1, max(1.0, float(p["grosor_contorno"]) * 1.6), 0
         color_contorno = _color_ass(p["color_contorno"])
     margen_h = int(w * 0.08)
-    cabecera = f"""[Script Info]
+    estilo = (f"Style: Default,{familia_fuente(p['fuente'])},{tam},{_color_ass(p['color_texto'])},&H000000FF,"
+              f"{color_contorno},&H80000000,0,0,0,0,100,100,0,0,{borde},{contorno},{sombra},{alineacion},"
+              f"{margen_h},{margen_h},{margen_v},1")
+    return estilo, prefijo
+
+
+def cabecera(w: int, h: int, estilos: list) -> str:
+    return f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {w}
 PlayResY: {h}
@@ -89,20 +97,35 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{familia_fuente(p['fuente'])},{tam},{_color_ass(p['color_texto'])},&H000000FF,{color_contorno},&H80000000,0,0,0,0,100,100,0,0,{borde},{contorno},{sombra},{alineacion},{margen_h},{margen_h},{margen_v},1
+""" + "\n".join(estilos) + """
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    lineas = []
+
+
+def lineas_srt(srt: str):
+    """[(inicio, fin, texto)] de un SRT."""
+    salida = []
     for _i, tiempos, texto in subtitle.file_to_subtitles(srt):
         if "-->" not in tiempos:
             continue
         a, b = tiempos.split("-->")
-        texto = " ".join(texto.split()).replace("{", "(").replace("}", ")")
-        lineas.append(f"Dialogue: 0,{_t_ass(_srt_t(a))},{_t_ass(_srt_t(b))},Default,,0,0,0,,{prefijo}{texto}")
+        salida.append((_srt_t(a), _srt_t(b), " ".join(texto.split())))
+    return salida
+
+
+def limpio(texto: str) -> str:
+    """Texto seguro dentro de un Dialogue (las llaves abren etiquetas ASS)."""
+    return texto.replace("{", "(").replace("}", ")").replace("\\", "/")
+
+
+def srt_a_ass(srt: str, ass: str, p: dict, w: int, h: int):
+    estilo, prefijo = estilo_base(p, w, h)
+    lineas = [f"Dialogue: 0,{_t_ass(a)},{_t_ass(b)},Default,,0,0,0,,{prefijo}{limpio(t)}"
+              for a, b, t in lineas_srt(srt)]
     with open(ass, "w", encoding="utf-8") as f:
-        f.write(cabecera + "\n".join(lineas) + "\n")
+        f.write(cabecera(w, h, [estilo]) + "\n".join(lineas) + "\n")
 
 
 def _ruta_filtro(ruta: str, cwd: str) -> str:
@@ -117,7 +140,11 @@ def _ruta_filtro(ruta: str, cwd: str) -> str:
 
 
 def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
-           duracion: float, destino: str):
+           duracion: float, destino: str, ass: str | None = None, sfx: str | None = None,
+           ducking: bool = False):
+    """`ass`: subtitulos ya preparados (edicion editorial) en vez de convertir `srt`.
+    `sfx`: pista de efectos (misma duracion que el video). `ducking`: la musica
+    baja sola mientras habla la voz."""
     ff = medios.ffmpeg()
     carpeta = os.path.dirname(destino)
     musica = mpt_video.get_bgm_file(bgm_type="random" if p.get("musica") else "",
@@ -125,35 +152,57 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
     args = [ff, "-hide_banner", "-loglevel", "error", "-y", "-i", combinado, "-i", audio]
     if musica:
         args += ["-stream_loop", "-1", "-i", musica]
+    if sfx:
+        args += ["-i", sfx]
+    i_sfx = 3 if musica else 2
 
     filtros = []
-    if srt:
+    if srt and not ass:
         ass = os.path.join(carpeta, "subtitulos.ass")
         srt_a_ass(srt, ass, p, w, h)
+    if ass:
         filtros.append(f"[0:v]subtitles={_ruta_filtro(ass, carpeta)}:"
                        f"fontsdir={_ruta_filtro(utils.font_dir(), carpeta)}[v]")
     vv = float(p["volumen_voz"])
+    pistas = ["[voz]"]
+    if musica and ducking:
+        filtros.append(f"[1:a]volume={vv},asplit=2[voz][guia]")
+    else:
+        filtros.append(f"[1:a]volume={vv}[voz]")
     if musica:
         mv = float(p["musica_volumen"])
         fin = max(0.0, duracion - 2)
-        filtros.append(f"[1:a]volume={vv}[voz];[2:a]volume={mv},afade=t=out:st={fin:.2f}:d=2[mus];"
-                       f"[voz][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]")
+        cadena = f"[2:a]volume={mv},afade=t=out:st={fin:.2f}:d=2"
+        if ducking:
+            # La voz controla un compresor sobre la musica: baja al hablar, vuelve en las pausas.
+            filtros.append(cadena + "[mus0];[mus0][guia]sidechaincompress="
+                           "threshold=0.025:ratio=5:attack=25:release=450:makeup=1.4[mus]")
+        else:
+            filtros.append(cadena + "[mus]")
+        pistas.append("[mus]")
+    if sfx:
+        filtros.append(f"[{i_sfx}:a]volume={float(p.get('sfx_volumen', 1.0))}[sfx]")
+        pistas.append("[sfx]")
+    if len(pistas) > 1:
+        filtros.append("".join(pistas) + f"amix=inputs={len(pistas)}:duration=first:"
+                       "dropout_transition=0:normalize=0[a]")
     else:
-        filtros.append(f"[1:a]volume={vv}[a]")
+        filtros.append("[voz]anull[a]")
     args += ["-filter_complex", ";".join(filtros),
-             "-map", "[v]" if srt else "0:v", "-map", "[a]"]
+             "-map", "[v]" if ass else "0:v", "-map", "[a]"]
 
-    if srt:
+    if ass:
         codec = mpt_video._get_effective_video_codec(p.get("codec") or None)
         args += ["-c:v", codec]
         if codec in ("libx264", "libx265"):
-            args += ["-preset", "fast", "-crf", "20"]
+            args += ["-preset", "veryfast", "-crf", "20"]  # "fast" tardaba el doble en CPU modesta
         args += ["-pix_fmt", "yuv420p"]
     else:
         args += ["-c:v", "copy"]
     args += ["-c:a", "aac", "-b:a", "192k", "-t", f"{duracion:.3f}", "-movflags", "+faststart", destino]
 
-    logger.info(f"acabado rapido: subtitulos={'si' if srt else 'no'}, musica={os.path.basename(musica) if musica else 'no'}")
+    logger.info(f"acabado rapido: subtitulos={'si' if ass else 'no'}, musica={os.path.basename(musica) if musica else 'no'}"
+                f"{', efectos de sonido' if sfx else ''}{', musica bajo la voz' if ducking else ''}")
     r = medios.correr(args, timeout=3600, cwd=carpeta)
     if r.returncode != 0 or not os.path.exists(destino):
         raise RuntimeError(f"ffmpeg fallo en el acabado: {r.stderr[-600:]}")

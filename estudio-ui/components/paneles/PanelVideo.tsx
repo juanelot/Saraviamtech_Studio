@@ -20,6 +20,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
 
   const s = (k: string) => (v: unknown) => set("render", k, v);
   const vertical = r.aspecto === "9:16";
+  const editorial = r.edicion === "editorial";
 
   async function subirMusica(f: File | undefined) {
     if (!f) return;
@@ -45,6 +46,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                 <p className="text-sm text-tinta-2">
                   {mmss(et.salida.duracion)} · {et.salida.ancho}×{et.salida.alto} · {et.salida.tam_mb} MB ·{" "}
                   {et.salida.clips_reutilizados} clips reutilizados
+                  {et.salida.edicion && <span className="block text-xs text-tinta-3">{et.salida.edicion.replace("edicion editorial: ", "Editorial: ")}</span>}
                 </p>
                 <a href={url.descargar(id)} className="boton boton-acento"><Download size={15} /> Descargar MP4</a>
               </div>
@@ -67,6 +69,48 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
       </div>
 
       <div className="space-y-5">
+        <Tarjeta titulo="Estilo de edicion">
+          <div className="space-y-4">
+            <Segmentado valor={editorial ? "editorial" : "clasico"} onChange={s("edicion")}
+              opciones={[{ v: "clasico", t: "Clasico" }, { v: "editorial", t: "Editorial" }]} />
+            <p className="text-xs text-tinta-3">
+              {editorial
+                ? "Efectos sobrios de documental que suben la retencion. Claude marca palabras clave, datos y momentos fuertes (unos segundos, una vez)."
+                : "Subtitulos por frase, sin efectos."}
+            </p>
+            {editorial && (
+              <div className="space-y-3">
+                <Interruptor valor={r.ed_palabras !== false} onChange={s("ed_palabras")}
+                  titulo="Subtitulos palabra por palabra" detalle="La palabra que suena se ilumina y la clave de cada frase va en color." />
+                {r.ed_palabras !== false && (
+                  <div className="grid grid-cols-2 gap-3 pl-7">
+                    <Campo etiqueta="Palabras en pantalla">
+                      <Deslizador valor={Number(r.palabras_max ?? 4)} min={2} max={6} paso={1} onChange={s("palabras_max")} />
+                    </Campo>
+                    <Campo etiqueta="Color de resalte">
+                      <input type="color" className="h-10 w-full cursor-pointer rounded-lg border border-linea bg-tarjeta"
+                        value={(r.color_resalte as string) || "#FFD447"} onChange={(e) => set("render", "color_resalte", e.target.value)} />
+                    </Campo>
+                  </div>
+                )}
+                <Interruptor valor={r.ed_rotulos !== false} onChange={s("ed_rotulos")}
+                  titulo="Rotulos de datos" detalle="Cifras, fechas y nombres en pantalla, con fundido." />
+                <Interruptor valor={r.ed_sonido !== false} onChange={s("ed_sonido")}
+                  titulo="Diseno de sonido" detalle="Whoosh suave en los cortes, golpe grave en las revelaciones y la musica baja sola cuando habla la voz." />
+                {r.ed_sonido !== false && (
+                  <Campo etiqueta="Volumen de efectos" className="pl-7">
+                    <Deslizador valor={Number(r.sfx_volumen ?? 1)} min={0} max={2} paso={0.1} onChange={s("sfx_volumen")}
+                      formato={(x) => `${Math.round(x * 100)}%`} />
+                  </Campo>
+                )}
+                {r.acabado === "clasico" && (
+                  <p className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">El estilo editorial necesita el acabado Rapido (en Motor).</p>
+                )}
+              </div>
+            )}
+          </div>
+        </Tarjeta>
+
         <Tarjeta titulo="Imagen">
           <div className="space-y-4">
             <Campo etiqueta="Formato">
@@ -182,5 +226,19 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
         </Tarjeta>
       </div>
     </div>
+  );
+}
+
+function Interruptor({ valor, onChange, titulo, detalle }: {
+  valor: boolean; onChange: (v: boolean) => void; titulo: string; detalle: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3">
+      <input type="checkbox" className="mt-0.5" checked={valor} onChange={(e) => onChange(e.target.checked)} />
+      <span className="text-sm">
+        <span className="font-medium">{titulo}</span>
+        <span className="block text-xs text-tinta-3">{detalle}</span>
+      </span>
+    </label>
   );
 }

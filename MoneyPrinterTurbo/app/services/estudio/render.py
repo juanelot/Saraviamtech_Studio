@@ -19,7 +19,7 @@ from loguru import logger
 
 from app.models.schema import VideoAspect, VideoParams
 from app.services import video as mpt_video
-from app.services.estudio import acabado, medios
+from app.services.estudio import acabado, edicion, medios
 
 DEFECTOS = {
     "aspecto": "9:16",
@@ -186,7 +186,18 @@ def ejecutar(ctx):
     rapido = p.get("acabado", "rapido") == "rapido" and acabado.tiene_libass(medios.ffmpeg())
     if p.get("acabado", "rapido") == "rapido" and not rapido:
         logger.warning("este ffmpeg no trae libass: se usa el acabado clasico (lento)")
-    if rapido:
+    resumen_edicion = None
+    if edicion.activa(p) and not rapido:
+        logger.warning("la edicion editorial necesita el acabado rapido (ffmpeg con libass): se ignora")
+    if rapido and edicion.activa(p):
+        ctx.avisar("edicion editorial: preparando subtitulos, rotulos y sonido", 73)
+        ed = edicion.preparar(ctx, voz, planos, p, w, h, float(voz["duracion"]))
+        resumen_edicion = ed["resumen"]
+        ctx.avisar(ed["resumen"], 76)
+        ctx.avisar("acabado rapido (ffmpeg): voz, musica, subtitulos y efectos", 78)
+        acabado.acabar(combinado, audio, None, p, w, h, float(voz["duracion"]), tmp_final,
+                       ass=ed["ass"], sfx=ed["sfx"], ducking=ed["ducking"])
+    elif rapido:
         ctx.avisar("acabado rapido (ffmpeg): voz, musica y subtitulos", 75)
         acabado.acabar(combinado, audio, srt or None, p, w, h, float(voz["duracion"]), tmp_final)
     else:
@@ -206,6 +217,7 @@ def ejecutar(ctx):
     ctx.avisar(f"video listo: {info['duracion']:.1f}s", 100)
     return {"mp4": "render/final.mp4", "duracion": info["duracion"], "ancho": w, "alto": h,
             "clips_nuevos": len(trabajos), "clips_reutilizados": len(planos) - len(trabajos),
+            "edicion": resumen_edicion,
             "tam_mb": round(os.path.getsize(final) / 1e6, 1)}
 
 

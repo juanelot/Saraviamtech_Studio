@@ -50,7 +50,7 @@ def ejecutar(ctx):
     carpeta = ctx.dir("voz")
     audio = os.path.join(carpeta, "voz.mp3")
     srt = os.path.join(carpeta, "subtitulos.srt")
-    for f in (audio, srt):
+    for f in (audio, srt, os.path.join(carpeta, "palabras.json")):
         if os.path.exists(f):
             os.remove(f)
 
@@ -90,6 +90,7 @@ def _voz_tts(ctx, texto, audio, srt):
     if duracion <= 0:
         raise RuntimeError("no se pudo medir la duracion del audio")
 
+    _guardar_palabras(sub_maker, os.path.join(ctx.dir("voz"), "palabras.json"))
     ctx.avisar("calculando tiempos de cada frase", 70)
     if config.app.get("subtitle_provider", "edge").strip().lower() == "edge":
         voice.create_subtitle(text=texto, sub_maker=sub_maker, subtitle_file=srt)
@@ -97,6 +98,25 @@ def _voz_tts(ctx, texto, audio, srt):
         subtitle.create(audio_file=audio, subtitle_file=srt)
         subtitle.correct(subtitle_file=srt, video_script=texto)
     return duracion
+
+
+def _guardar_palabras(sub_maker, destino):
+    """Tiempos de CADA palabra (los da edge-tts con WordBoundary): los usa la
+    edicion editorial para los subtitulos palabra a palabra. Si el TTS solo da
+    frases, no se guarda nada y la edicion reparte los tiempos por frase."""
+    palabras = []
+    try:
+        if getattr(sub_maker, "cues", None):
+            palabras = [[round(c.start.total_seconds(), 3), round(c.end.total_seconds(), 3), str(c.content)]
+                        for c in sub_maker.cues]
+        elif getattr(sub_maker, "subs", None) and len(sub_maker.subs) == len(getattr(sub_maker, "offset", [])):
+            palabras = [[round(a / 1e7, 3), round(b / 1e7, 3), str(t)]
+                        for t, (a, b) in zip(sub_maker.subs, sub_maker.offset)]
+    except Exception:  # noqa: BLE001
+        palabras = []
+    if palabras and all(len(t.split()) == 1 for _a, _b, t in palabras):
+        with open(destino, "w", encoding="utf-8") as f:
+            json.dump(palabras, f, ensure_ascii=False)
 
 
 def _voz_clonada(ctx, texto, audio, srt):

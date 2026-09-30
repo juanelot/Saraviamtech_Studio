@@ -54,7 +54,7 @@ export interface SalidaEscenas { escenas: Escena[]; total: number; con_prompt: n
 export interface SalidaAsignacion { planos: Plano[]; recursos_usados: number; faltan?: number[] }
 export interface SalidaRender {
   mp4: string; duracion: number; ancho: number; alto: number;
-  clips_nuevos: number; clips_reutilizados: number; tam_mb: number;
+  clips_nuevos: number; clips_reutilizados: number; tam_mb: number; edicion?: string | null;
 }
 
 export type Params = Record<string, unknown>;
