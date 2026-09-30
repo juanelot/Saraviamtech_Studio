@@ -284,7 +284,9 @@ export interface Creacion {
   id: string; maestro: string; titulo: string; tema: string; modo: "guiado" | "auto"; modelo: string;
   creado: number; actualizado: number; turnos: TurnoCreacion[]; error: string | null; pensando: boolean;
   entregables: Entregables | null; entregables_estado: "preparando" | "listo" | "error" | null; entregables_error: string | null;
+  proyectos?: { id: string; narracion: Narracion; t: number }[];
 }
+export type Narracion = "propia" | "demostracion" | "libre" | "sin_voz";
 export interface ResumenCreacion {
   id: string; titulo: string; creado: number; actualizado: number; pensando: boolean; turnos: number;
   modo: Creacion["modo"]; terminada: boolean; entregables: boolean;
@@ -302,4 +304,6 @@ export const creaciones = {
   cambiar: (mid: string, cid: string, cambios: { titulo?: string; modo?: Creacion["modo"] }) =>
     pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}`, { method: "PATCH", ...json(cambios) }),
   borrar: (mid: string, cid: string) => pedir<{ ok: boolean }>(`/maestros/${mid}/creaciones/${cid}`, { method: "DELETE" }),
+  video: (mid: string, cid: string, datos: { narracion: Narracion; aspecto: string; titulo?: string }) =>
+    pedir<{ proyecto: { id: string; titulo: string } }>(`/maestros/${mid}/creaciones/${cid}/video`, { method: "POST", ...json(datos) }),
 };

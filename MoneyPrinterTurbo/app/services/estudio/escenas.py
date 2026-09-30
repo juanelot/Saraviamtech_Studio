@@ -16,6 +16,11 @@ Agrupacion: planos consecutivos de la voz hasta llegar a `segundos` (un clip de
 Flow dura 8 s). Una escena nunca parte un plano, asi la imagen cambia justo
 cuando cambia la frase. `segundos` = 0 -> una escena por plano.
 
+Escenas FIJAS (`fijas`, se lee con .get; lo pone "Crear video" de un prompt
+maestro): las escenas y sus prompts vienen hechos. Solo se calcula cuando empieza
+y acaba cada una sobre la voz: por palabras si todas traen su narracion, o
+repartiendo por su duracion si no.
+
 Prompts: `generar` = "no" (solo agrupa, sin Claude) | "imagenes" |
 "imagenes_videos". La respuesta de Claude se cachea con la huella de SUS
 entradas (escenas/base.json): corregir un prompt a mano (`ediciones`) no vuelve
@@ -75,6 +80,55 @@ def agrupar(planos, segundos):
             "narration": " ".join(x["texto"] for x in g).strip(),
             "image_prompt": "",
             "video_prompt": "",
+        })
+    return escenas
+
+
+def _tiempos_palabras(ctx, planos):
+    """[(inicio, fin)] de cada palabra dicha: los de edge-tts si estan, si no se
+    reparten las palabras de cada plano a partes iguales."""
+    datos = almacen.leer_json(ctx.dir("voz", "palabras.json", crear=False))
+    if datos:
+        return [(float(a), float(b)) for a, b, _t in datos]
+    tiempos = []
+    for x in planos:
+        n = max(1, len(x["texto"].split()))
+        paso = (x["fin"] - x["inicio"]) / n
+        tiempos += [(x["inicio"] + k * paso, x["inicio"] + (k + 1) * paso) for k in range(n)]
+    return tiempos
+
+
+def fijas_en_tiempo(fijas, planos, duracion, tiempos):
+    n = len(fijas)
+    cortes = [0.0]
+    if all((f.get("narracion") or "").strip() for f in fijas) and len(tiempos) > n:
+        pesos = [max(1, len(f["narracion"].split())) for f in fijas]
+        total, acum = sum(pesos), 0
+        for k in range(n - 1):
+            acum += pesos[k]
+            # Mismas palabras que la voz: corte exacto; si no, proporcional.
+            j = acum if total == len(tiempos) else round(acum / total * len(tiempos))
+            j = min(len(tiempos) - 1, max(1, j))
+            cortes.append((tiempos[j - 1][1] + tiempos[j][0]) / 2)
+    else:
+        pesos = [float(f.get("duracion_s") or 0) or 1.0 for f in fijas]
+        total = sum(pesos)
+        cortes += [duracion * sum(pesos[:k + 1]) / total for k in range(n - 1)]
+    cortes.append(duracion)
+    minimo = min(0.5, duracion / max(1, n) / 2)
+    for k in range(1, len(cortes)):  # siempre crecientes, ninguna escena vacia
+        cortes[k] = max(cortes[k], cortes[k - 1] + minimo)
+    cortes[-1] = max(cortes[-1], duracion)
+    escenas = []
+    for k, f in enumerate(fijas):
+        a, b = round(cortes[k], 3), round(cortes[k + 1], 3)
+        escenas.append({
+            "scene_number": k + 1, "inicio": a, "fin": b, "duracion": round(b - a, 2),
+            "planos": [x["i"] for x in planos if x["inicio"] < b and x["fin"] > a],
+            "narration": (f.get("narracion") or "").strip() or " ".join(
+                x["texto"] for x in planos if a <= (x["inicio"] + x["fin"]) / 2 < b).strip(),
+            "image_prompt": " ".join(str(f.get("imagen") or "").split()),
+            "video_prompt": " ".join(str(f.get("video") or "").split()),
         })
     return escenas
 
@@ -157,11 +211,16 @@ def ejecutar(ctx):
     planos = voz.get("planos") or []
     if not planos:
         raise ValueError("la voz no produjo planos")
-    escenas = agrupar(planos, float(p["segundos"] or 0))
+    fijas = p.get("fijas") or []
+    if fijas:
+        escenas = fijas_en_tiempo(fijas, planos, float(voz.get("duracion") or planos[-1]["fin"]),
+                                  _tiempos_palabras(ctx, planos))
+    else:
+        escenas = agrupar(planos, float(p["segundos"] or 0))
     carpeta = ctx.dir("escenas")
     aspecto = ctx.params_de("render").get("aspecto", "9:16")
 
-    if p["generar"] in ("imagenes", "imagenes_videos"):
+    if p["generar"] in ("imagenes", "imagenes_videos") and not fijas:
         guion = " ".join(x["texto"] for x in planos)
         ruta_base = os.path.join(carpeta, "base.json")
         clave = _clave(escenas, guion, p, aspecto)

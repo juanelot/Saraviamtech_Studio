@@ -35,6 +35,7 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
   const generar = (e.generar as string) || "imagenes";
   const ediciones = (e.ediciones as Record<string, { image_prompt?: string; video_prompt?: string }>) || {};
   const escenas = et.salida?.escenas || [];
+  const fijas = (e.fijas as unknown[]) || [];
 
   // Que escenas ya tienen contenido subido (por numero de archivo).
   const recursos = vista.etapas.recursos.salida?.recursos || [];
@@ -66,16 +67,30 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
           ]}
         />
         <p className="mt-3 text-sm text-tinta-2">
-          {modoEscenas
+          {modoEscenas && fijas.length
+            ? "Tu generas el contenido de cada escena en Flow (o con la extension, usando el script.json) y lo subes en el paso Contenido: cada archivo va a su escena por su numero."
+            : modoEscenas
             ? "Claude corta el guion en escenas y escribe los prompts. Tu generas el contenido en Flow (o con la extension, usando el script.json) y lo subes en el paso Contenido: cada archivo va a su escena por su numero."
             : "Este paso no hace falta: en Contenido subes tus imagenes y videos y Claude elige cual va en cada frase."}
         </p>
       </Tarjeta>
 
+      {modoEscenas && fijas.length > 0 && (
+        <Tarjeta titulo="Escenas del prompt maestro">
+          <p className="text-sm text-tinta-2">
+            Este video sale de un prompt maestro: sus {fijas.length} escenas y sus prompts ya vienen hechos. Aqui solo se
+            colocan sobre la voz (cuando empieza y acaba cada una). Puedes corregir cualquier prompt abajo.
+          </p>
+          <button className="boton boton-acento mt-4" disabled={ocupado} onClick={() => ejecutar("escenas")}>
+            <Sparkles size={15} /> {et.salida ? (et.estado === "ok" ? "Escenas al dia" : "Volver a colocar") : "Colocar escenas"}
+          </button>
+        </Tarjeta>
+      )}
+
       {modoEscenas && (
         <>
           <AvisoError texto={et.error} />
-          <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+          <div className={`grid gap-5 lg:grid-cols-[1.4fr_1fr] ${fijas.length ? "hidden" : ""}`}>
             <Tarjeta titulo="Escenas y prompts">
               <div className="space-y-4">
                 <Campo etiqueta="Que prompts quieres">
@@ -143,7 +158,7 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
                   </a>
                   <a href={url.promptsTxt(id)} className="boton boton-linea !py-1.5 text-sm"><FileText size={15} /> prompts.txt</a>
                   <Copiar texto={todos("image_prompt")} etiqueta="Copiar prompts de imagen" />
-                  {generar === "imagenes_videos" && <Copiar texto={todos("video_prompt")} etiqueta="Copiar prompts de video" />}
+                  {(generar === "imagenes_videos" || fijas.length > 0) && <Copiar texto={todos("video_prompt")} etiqueta="Copiar prompts de video" />}
                 </div>
                 <p className="mt-3 text-xs text-tinta-3">
                   Extension: guarda el archivo como <code>script.json</code> en una carpeta vacia, genera con ella y luego

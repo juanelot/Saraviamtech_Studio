@@ -10,12 +10,13 @@ import {
 import { AvisoError, Tarjeta } from "./ui";
 import TextoRico from "./TextoRico";
 import { Copiar } from "./paneles/PanelEscenas";
-import { creaciones, maestros, type Creacion, type Entregables } from "@/lib/api";
+import { creaciones, maestros, type Creacion, type Entregables, type FichaMaestro, type Narracion } from "@/lib/api";
 
 export default function CreacionMaestro({ id, cid }: { id: string; cid: string }) {
   const router = useRouter();
   const [c, setC] = useState<Creacion | null>(null);
   const [nombreMaestro, setNombreMaestro] = useState("");
+  const [ficha, setFicha] = useState<FichaMaestro | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [texto, setTexto] = useState("");
   const [titulo, setTitulo] = useState("");
@@ -39,7 +40,7 @@ export default function CreacionMaestro({ id, cid }: { id: string; cid: string }
     // cargar es async: el setState ocurre tras el fetch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar();
-    maestros.ver(id).then((m) => setNombreMaestro(m.nombre)).catch(() => {});
+    maestros.ver(id).then((m) => { setNombreMaestro(m.nombre); setFicha(m.ficha); }).catch(() => {});
   }, [cargar, id]);
 
   const ocupado = !!c?.pensando;
@@ -184,6 +185,9 @@ export default function CreacionMaestro({ id, cid }: { id: string; cid: string }
         </section>
 
         <aside className="lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+          {c.entregables && c.entregables.escenas.length > 0 && (
+            <CrearVideo c={c} mid={id} ficha={ficha} ocupado={ocupado || enviando} />
+          )}
           <PanelEntregables c={c} ocupado={ocupado || enviando}
             onPreparar={() => accion(() => creaciones.entregables(id, cid))} />
         </aside>
@@ -213,6 +217,83 @@ function scriptJson(e: Entregables) {
       scene_number: s.n, image_prompt: s.imagen || "", video_prompt: s.video || "", narration: s.narracion || "",
     })),
   }, null, 2);
+}
+
+const NARRACIONES: { v: Narracion; t: string; d: string }[] = [
+  { v: "propia", t: "Su guion", d: "La narracion que escribio el prompt maestro, tal cual." },
+  { v: "demostracion", t: "Guion demostracion", d: "Claude narra lo que se ve en cada escena, ajustado a su duracion." },
+  { v: "libre", t: "Guion libre", d: "Claude redacta un guion del tema para la duracion total; lo puedes editar en Guion." },
+  { v: "sin_voz", t: "Sin voz", d: "Sin locucion ni subtitulos: suena el audio de los clips (ASMR, efectos, dialogos de Veo)." },
+];
+
+function CrearVideo({ c, mid, ficha, ocupado }: { c: Creacion; mid: string; ficha: FichaMaestro | null; ocupado: boolean }) {
+  const router = useRouter();
+  const e = c.entregables as Entregables;
+  const tieneGuion = !!e.guion || e.escenas.some((s) => s.narracion);
+  const opciones = NARRACIONES.filter((n) => n.v !== "propia" || tieneGuion);
+  const [narracion, setNarracion] = useState<Narracion>(tieneGuion ? "propia" : "demostracion");
+  const aspectoFicha = ["9:16", "16:9", "1:1"].includes(ficha?.formato?.aspecto || "") ? (ficha?.formato?.aspecto as string) : "9:16";
+  const [aspecto, setAspecto] = useState<string | null>(null);
+  const [creando, setCreando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const formato = aspecto || aspectoFicha;
+
+  async function crear() {
+    setCreando(true);
+    setError(null);
+    try {
+      const r = await creaciones.video(mid, c.id, { narracion, aspecto: formato });
+      router.push(`/p/${r.proyecto.id}`);
+    } catch (err) {
+      setError(String((err as Error).message || err));
+      setCreando(false);
+    }
+  }
+
+  return (
+    <Tarjeta titulo="Crear video en el Estudio" className="mb-5 border-acento/40">
+      <div className="space-y-4 text-sm">
+        <div>
+          <p className="etiqueta mb-2">Narracion</p>
+          <div className="space-y-1.5">
+            {opciones.map((n) => (
+              <label key={n.v} className={`flex cursor-pointer gap-2.5 rounded-xl border px-3 py-2 transition ${narracion === n.v ? "border-acento bg-acento-suave" : "border-linea hover:bg-hundido"}`}>
+                <input type="radio" name="narracion" className="mt-1 accent-[var(--acento)]" checked={narracion === n.v} onChange={() => setNarracion(n.v)} />
+                <span><span className="font-semibold">{n.t}</span><span className="block text-xs text-tinta-2">{n.d}</span></span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="etiqueta mb-2">Formato</p>
+          <div className="flex gap-1.5">
+            {["9:16", "16:9", "1:1"].map((a) => (
+              <button key={a} className={`boton !py-1 text-xs ${formato === a ? "boton-acento" : "boton-linea"}`} onClick={() => setAspecto(a)}>{a}</button>
+            ))}
+          </div>
+        </div>
+        <AvisoError texto={error} />
+        <button className="boton boton-acento w-full justify-center" disabled={creando || ocupado} onClick={crear}>
+          {creando ? <Loader2 size={15} className="animate-spin" /> : <Clapperboard size={15} />}
+          {creando && narracion === "demostracion" ? "Claude escribe la narracion…" : "Crear proyecto"}
+        </button>
+        <p className="text-xs text-tinta-3">
+          Se crea un video con las {e.escenas.length} escenas y sus prompts ya puestos. Luego: genera la voz, sube lo que
+          hagas en Flow en el paso Contenido (cada archivo con su numero de escena) y monta el video.
+        </p>
+        {!!c.proyectos?.length && (
+          <div className="border-t border-linea pt-3">
+            <p className="etiqueta mb-1.5">Videos creados</p>
+            {c.proyectos.map((p) => (
+              <Link key={p.id} href={`/p/${p.id}`} className="block rounded-lg px-2 py-1 text-tinta-2 hover:bg-hundido">
+                {NARRACIONES.find((n) => n.v === p.narracion)?.t} · {new Date(p.t * 1000).toLocaleString()}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </Tarjeta>
+  );
 }
 
 function PanelEntregables({ c, ocupado, onPreparar }: { c: Creacion; ocupado: boolean; onPreparar: () => void }) {
@@ -277,7 +358,17 @@ function PanelEntregables({ c, ocupado, onPreparar }: { c: Creacion; ocupado: bo
           {e.miniaturas.length > 0 && (
             <div>
               <p className="etiqueta mb-2">Miniaturas</p>
-              <div className="space-y-2">{e.miniaturas.map((m, i) => <Prompt key={i} titulo={`Miniatura ${i + 1}`} texto={m} />)}</div>
+              <div className="space-y-2">
+                {e.miniaturas.map((m, i) => (
+                  <details key={i} className="rounded-xl border border-linea bg-hundido/40 px-3 py-2">
+                    <summary className="cursor-pointer list-none">
+                      <span className="font-semibold">Miniatura {i + 1}</span>
+                      <span className="mt-0.5 line-clamp-2 block text-tinta-2">{m}</span>
+                    </summary>
+                    <div className="mt-2"><Prompt titulo="Prompt" texto={m} /></div>
+                  </details>
+                ))}
+              </div>
             </div>
           )}
 
@@ -287,9 +378,6 @@ function PanelEntregables({ c, ocupado, onPreparar }: { c: Creacion; ocupado: bo
             </Bloque>
           ))}
 
-          <button className="boton boton-linea w-full justify-center" disabled title="Llega en la fase 3">
-            <Clapperboard size={15} /> Crear video en el Estudio
-          </button>
         </div>
       )}
     </Tarjeta>

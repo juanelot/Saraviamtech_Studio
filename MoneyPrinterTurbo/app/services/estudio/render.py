@@ -180,7 +180,8 @@ def ejecutar(ctx):
     w, h = VideoAspect(p["aspecto"]).to_resolution()
     dir_clips = ctx.dir("render", "clips")
     rapido = p.get("acabado", "rapido") == "rapido" and acabado.tiene_libass(medios.ffmpeg())
-    editorial = rapido and edicion.activa(p)
+    sin_voz = bool(voz.get("sin_voz"))
+    editorial = rapido and edicion.activa(p) and not sin_voz
 
     # Editorial: Claude marca antes de los clips (las revelaciones deciden los
     # subcortes) y los planos se parten en piezas. Si no, una pieza por plano.
@@ -227,13 +228,16 @@ def ejecutar(ctx):
     final = os.path.join(carpeta, "final.mp4")
     tmp_final = os.path.join(carpeta, "final.tmp.mp4")
     audio = ctx.dir(voz["audio"], crear=False)
-    srt = ctx.dir(voz["srt"], crear=False) if p["subtitulos"] else ""
+    srt = ctx.dir(voz["srt"], crear=False) if p["subtitulos"] and not sin_voz else ""
+    if sin_voz:
+        ctx.avisar("sin voz: sonido de los clips", 73)
+        audio = _audio_de_clips(planos, carpeta)
     if p.get("acabado", "rapido") == "rapido" and not rapido:
         logger.warning("este ffmpeg no trae libass: se usa el acabado clasico (lento)")
     resumen_edicion = None
     if edicion.activa(p) and not rapido:
         logger.warning("la edicion editorial necesita el acabado rapido (ffmpeg con libass): se ignora")
-    if rapido and edicion.activa(p):
+    if editorial:
         ctx.avisar("edicion editorial: preparando subtitulos, rotulos y sonido", 73)
         ed = edicion.preparar(ctx, voz, planos, p, w, h, float(voz["duracion"]))
         resumen_edicion = ed["resumen"]
@@ -263,6 +267,47 @@ def ejecutar(ctx):
             "clips_nuevos": len(trabajos), "clips_reutilizados": len(piezas) - len(trabajos),
             "edicion": resumen_edicion,
             "tam_mb": round(os.path.getsize(final) / 1e6, 1)}
+
+
+def _audio_de_clips(planos, carpeta):
+    """Pista con el sonido de cada clip en su tramo (silencio en imagenes o
+    videos mudos). Se usa como "voz" cuando el video no lleva narracion."""
+    trozos_dir = os.path.join(carpeta, "audio_clips")
+    os.makedirs(trozos_dir, exist_ok=True)
+    ff = medios.ffmpeg()
+    trozos = []
+    for x in planos:
+        frames = max(1, round(x["fin"] * FPS) - round(x["inicio"] * FPS))
+        dur = frames / FPS
+        destino = os.path.join(trozos_dir, f"{x['i']:04d}.wav")
+        base = [ff, "-hide_banner", "-loglevel", "error", "-y"]
+        if x["tipo"] == "video" and medios.tiene_audio(x["ruta"]):
+            offset = float(x.get("offset") or 0)
+            dur_rec = float(x.get("dur_recurso") or 0)
+            if dur_rec and offset + dur > dur_rec + 0.05:
+                base += ["-stream_loop", "-1"]
+            if offset > 0:
+                base += ["-ss", f"{offset:.3f}"]
+            args = base + ["-i", x["ruta"], "-vn", "-af", "apad", "-t", f"{dur:.3f}"]
+        else:
+            args = base + ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur:.3f}"]
+        r = medios.correr(args + ["-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", destino], timeout=300)
+        if r.returncode != 0:
+            raise RuntimeError(f"no se pudo sacar el audio del plano {x['i']}: {r.stderr[-300:]}")
+        trozos.append(destino)
+    salida = os.path.join(carpeta, "audio_clips.wav")
+    lista = salida + ".txt"
+    with open(lista, "w", encoding="utf-8") as f:
+        for t in trozos:
+            f.write("file '" + t.replace("\\", "/") + "'\n")
+    r = medios.correr([ff, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+                       "-i", lista, "-c", "copy", salida], timeout=600)
+    os.remove(lista)
+    for t in trozos:
+        os.remove(t)
+    if r.returncode != 0:
+        raise RuntimeError(f"no se pudo unir el audio de los clips: {r.stderr[-300:]}")
+    return salida
 
 
 def _limpiar_clips(carpeta, vivos, conservar=400):

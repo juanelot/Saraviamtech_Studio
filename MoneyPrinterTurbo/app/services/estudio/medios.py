@@ -71,6 +71,13 @@ def sondear(ruta) -> dict:
     return info
 
 
+def tiene_audio(ruta) -> bool:
+    if tipo_de(ruta) == "imagen":
+        return False
+    r = correr([ffmpeg(), "-hide_banner", "-i", ruta], timeout=60)
+    return bool(re.search(r"Stream #.*Audio:", r.stderr))
+
+
 def _fotograma(ruta, t, destino):
     correr([ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{t:.2f}",
             "-i", ruta, "-frames:v", "1", "-vf", "scale=512:-2", destino], timeout=120)

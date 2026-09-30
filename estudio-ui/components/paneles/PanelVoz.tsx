@@ -16,6 +16,32 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado }: Panel
   const voces = AZURE_VOICES.filter((x) => x.lang === idioma);
   const [tipo, setTipo] = useState<"microsoft" | "clonada">(voz.startsWith("clon:") ? "clonada" : "microsoft");
 
+  if (voz === "ninguna") {
+    const tramos = (v.tramos as number[]) || [];
+    return (
+      <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
+        <Tarjeta titulo="Sin voz">
+          <p className="text-sm text-tinta-2">
+            Este video no lleva narracion: suena el audio de los propios clips (ASMR, efectos o dialogos generados en Flow),
+            con {tramos.length} escenas de duracion fija ({mmss(tramos.reduce((a, b) => a + b, 0))} en total).
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="boton boton-acento" disabled={ocupado} onClick={() => ejecutar("voz")}>
+              {et.salida ? "Rehacer la pista" : "Preparar la pista"}
+            </button>
+            <button className="boton boton-linea" disabled={ocupado}
+              title="Escribe antes el guion en el paso Guion"
+              onClick={() => set("voz", "voz", "es-MX-JorgeNeural-Male")}>
+              <Mic size={15} /> Prefiero narrarlo
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-tinta-3">Para narrarlo, escribe el guion en el paso Guion y luego elige aqui una voz.</p>
+        </Tarjeta>
+        <AvisoError texto={et.error} />
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
       <Tarjeta titulo="Voz">

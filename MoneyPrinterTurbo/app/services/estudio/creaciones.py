@@ -15,6 +15,13 @@ Al terminar (o cuando se pida), Claude ordena lo producido en ENTREGABLES
 (guion, escenas con prompt de imagen/video, miniaturas, bloques) copiando los
 prompts tal cual, para copiarlos o descargarlos como prompts.txt / script.json.
 
+CREAR VIDEO: de los entregables sale un proyecto del Estudio ya relleno (guion,
+escenas FIJAS con sus prompts, asignacion por escenas, formato). La narracion:
+  propia         el guion del prompt maestro, tal cual
+  demostracion   Claude escribe una linea por escena contando lo que se ve
+  libre          Claude redacta un guion libre del tema (etapa Guion, editable)
+  sin_voz        sin locucion: suena el audio de los clips (ASMR, dialogos de Veo)
+
     storage/estudio/maestros/<mid>/creaciones/<cid>.json
 """
 import json
@@ -122,6 +129,8 @@ def cargar(mid, cid):
     if not c:
         raise ErrorCreacion("creacion no encontrada")
     c["pensando"] = cid in _activas
+    # Videos creados que la persona ya borro de "Mis videos": fuera de la lista.
+    c["proyectos"] = [p for p in c.get("proyectos") or [] if os.path.isdir(almacen.dir_proyecto(p["id"]))]
     return c
 
 
@@ -350,6 +359,116 @@ def separar_app(salida):
     tipo = app.get("tipo") if app.get("tipo") in ("texto", "opcion", "fin") else "texto"
     opciones = [str(o).strip() for o in (app.get("opciones") or []) if str(o).strip()][:12]
     return visible, {"tipo": tipo, "opciones": opciones, "recomendada": str(app.get("recomendada") or "").strip()}
+
+
+# ------------------------------------------------------------------ crear video
+
+NARRACIONES = ("propia", "demostracion", "libre", "sin_voz")
+ASPECTOS = ("9:16", "16:9", "1:1")
+VOZ_POR_IDIOMA = {"es": "es-MX-JorgeNeural-Male", "en": "en-US-AndrewNeural-Male", "pt": "pt-BR-AntonioNeural-Male"}
+
+PROMPT_DEMOSTRACION = """Vas a escribir la NARRACION de un video corto del estilo "{estilo}".
+El prompt maestro de este estilo no trae voz; la persona quiere narrarlo como DEMOSTRACION:
+contar, con naturalidad, lo que se ve en cada escena mientras ocurre (que pasa, como se ve,
+como suena o se siente), con un gancho en la primera linea y un cierre en la ultima.
+
+Idioma: {idioma}. Tono: {tono}
+Una linea por escena, en orden. Cada linea debe caber en la duracion de su escena
+(unas 2.5 palabras por segundo como maximo). Sin emojis, sin comillas, sin acotaciones.
+
+ESCENAS (numero, duracion, lo que se ve segun su prompt):
+{escenas}
+
+Responde SOLO con un JSON: una lista de exactamente {n} textos, uno por escena, en orden."""
+
+
+def aspecto_de(ficha):
+    a = str(((ficha or {}).get("formato") or {}).get("aspecto") or "")
+    return a if a in ASPECTOS else "9:16"
+
+
+def narracion_sugerida(c, ficha):
+    e = c.get("entregables") or {}
+    if e.get("guion") or any(s.get("narracion") for s in e.get("escenas") or []):
+        return "propia"
+    return "sin_voz"
+
+
+def crear_video(mid, cid, narracion, aspecto=None, voz=None, titulo=None):
+    c = cargar(mid, cid)
+    e = c.get("entregables") or {}
+    escenas = e.get("escenas") or []
+    if not escenas:
+        raise ErrorCreacion("primero prepara los entregables: hacen falta las escenas")
+    if narracion not in NARRACIONES:
+        raise ErrorCreacion("narracion no valida")
+    maestro = maestros.cargar(mid)
+    ficha = maestro.get("ficha") or {}
+    formato = ficha.get("formato") or {}
+    clip_s = float(formato.get("clip_s") or 0) or 8.0
+    idioma = str((ficha.get("narracion") or {}).get("idioma") or "es").split("-")[0].lower()[:2] or "es"
+    aspecto = aspecto if aspecto in ASPECTOS else aspecto_de(ficha)
+
+    fijas = [{"n": s["n"], "narracion": s.get("narracion"), "imagen": s.get("imagen"), "video": s.get("video"),
+              "duracion_s": float(s.get("duracion_s") or 0) or clip_s} for s in escenas]
+    params = {"escenas": {"generar": "no", "fijas": fijas},
+              "asignacion": {"modo": "escenas", "preferir": "video"},
+              "render": {"aspecto": aspecto}}
+    total = sum(f["duracion_s"] for f in fijas)
+
+    if narracion == "propia":
+        guion = (e.get("guion") or "").strip() or " ".join(f["narracion"] or "" for f in fijas).strip()
+        if not guion:
+            raise ErrorCreacion("esta creacion no trae guion: elige demostracion, libre o sin voz")
+        params["guion"] = {"modo": "literal", "material": guion, "idioma": idioma}
+    elif narracion == "demostracion":
+        lineas = _demostracion(maestro, fijas, idioma, c.get("modelo") or "sonnet")
+        for f, linea in zip(fijas, lineas):
+            f["narracion"] = linea
+        params["guion"] = {"modo": "literal", "material": "\n\n".join(lineas), "idioma": idioma}
+    elif narracion == "libre":
+        for f in fijas:
+            f["narracion"] = None
+        vistas = "\n".join(f"- escena {f['n']}: {(f['video'] or f['imagen'] or '')[:300]}" for f in fijas)
+        params["guion"] = {
+            "modo": "redactar", "idioma": idioma, "duracion_s": max(10, int(round(total))),
+            "material": f"Tema: {c.get('tema') or e.get('titulo') or c['titulo']}\n\n"
+                        f"Lo que se ve en el video, en orden:\n{vistas}",
+            "instrucciones": f"Video del estilo {maestro['nombre']}. La narracion acompana las escenas en su orden, "
+                             "sin describirlas literalmente.",
+        }
+    else:
+        for f in fijas:
+            f["narracion"] = None
+        params["guion"] = {"modo": "literal", "material": "(video sin narracion)", "idioma": idioma}
+        params["voz"] = {"voz": "ninguna", "tramos": [f["duracion_s"] for f in fijas]}
+        params["render"].update({"subtitulos": False, "musica": ""})
+
+    if narracion != "sin_voz":
+        params["voz"] = {"voz": voz or VOZ_POR_IDIOMA.get(idioma, "es-ES-AlvaroNeural-Male")}
+
+    proyecto = almacen.crear((titulo or e.get("titulo") or c["titulo"]).strip())
+    proyecto["params"] = params
+    proyecto["origen"] = {"maestro": mid, "creacion": cid, "narracion": narracion}
+    almacen.guardar(proyecto)
+    with almacen.candado(f"creacion-{cid}"):
+        c = cargar(mid, cid)
+        c.setdefault("proyectos", []).append({"id": proyecto["id"], "narracion": narracion, "t": time.time()})
+        _guardar(mid, c)
+    return proyecto
+
+
+def _demostracion(maestro, fijas, idioma, modelo):
+    ficha = maestro.get("ficha") or {}
+    escenas = "\n".join(f"{f['n']} ({f['duracion_s']:g} s): {(f['video'] or f['imagen'] or '')[:600]}" for f in fijas)
+    prompt = PROMPT_DEMOSTRACION.format(
+        estilo=maestro["nombre"], idioma={"es": "espanol neutro latinoamericano", "en": "ingles"}.get(idioma, idioma),
+        tono=(ficha.get("audio") or "")[:300] or "calmado y cercano", escenas=escenas, n=len(fijas))
+    datos = claude_cli.extraer_json(claude_cli.ejecutar(prompt, modelo=modelo, esfuerzo="low", tiempo_max_s=600))
+    lineas = [" ".join(str(x).split()) for x in datos] if isinstance(datos, list) else []
+    if len(lineas) != len(fijas) or not all(lineas):
+        raise ErrorCreacion("Claude no devolvio una linea por escena; intentalo otra vez")
+    return lineas
 
 
 # ------------------------------------------------------------------ entregables

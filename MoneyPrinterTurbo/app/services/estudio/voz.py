@@ -5,10 +5,15 @@ cambio de imagen cae justo donde cambia la narracion.
 
 Planos: se fusionan los trozos mas cortos que `plano_min_s` y se parten los mas
 largos que `plano_max_s`, para que ningun recurso se quede demasiado en pantalla.
+
+Sin voz (voz = "ninguna", p. ej. estilos ASMR de un prompt maestro): silencio de
+la duracion de `tramos` (segundos de cada escena, se lee con .get) y un plano por
+tramo; el render usa entonces el sonido de los propios clips.
 """
 import json
 import math
 import os
+import re
 
 from app.config import config
 from app.services import subtitle, voice
@@ -22,6 +27,32 @@ DEFECTOS = {
     "plano_min_s": 2.5,
     "plano_max_s": 6.0,
 }
+
+
+SIN_VOZ = "ninguna"
+
+
+def _sin_voz(ctx):
+    tramos = [float(t) for t in ctx.params.get("tramos") or [] if float(t) > 0]
+    if not tramos:
+        raise ValueError("sin voz hace falta la duracion de cada escena (tramos)")
+    carpeta = ctx.dir("voz")
+    audio = os.path.join(carpeta, "voz.mp3")
+    duracion = round(sum(tramos), 3)
+    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                       "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{duracion:.3f}",
+                       "-c:a", "libmp3lame", "-q:a", "4", audio], timeout=300)
+    if r.returncode != 0:
+        raise RuntimeError(f"ffmpeg no pudo crear la pista muda: {r.stderr[-300:]}")
+    with open(os.path.join(carpeta, "subtitulos.srt"), "w", encoding="utf-8") as f:
+        f.write("")
+    planos, t = [], 0.0
+    for i, d in enumerate(tramos):
+        planos.append({"i": i, "inicio": round(t, 3), "fin": round(t + d, 3), "texto": ""})
+        t += d
+    ctx.avisar(f"sin voz: {len(planos)} escenas, {duracion:.1f}s (sonara el audio de los clips)", 100)
+    return {"audio": "voz/voz.mp3", "srt": "voz/subtitulos.srt", "duracion": duracion,
+            "planos": planos, "sin_voz": True}
 
 
 def partir_largos(segmentos, maximo):
@@ -44,6 +75,8 @@ def partir_largos(segmentos, maximo):
 
 def ejecutar(ctx):
     p = ctx.params
+    if p["voz"] == SIN_VOZ:
+        return _sin_voz(ctx)
     texto = (ctx.salidas["guion"] or {}).get("texto", "").strip()
     if not texto:
         raise ValueError("no hay guion")
@@ -90,9 +123,11 @@ def _voz_tts(ctx, texto, audio, srt):
     if duracion <= 0:
         raise RuntimeError("no se pudo medir la duracion del audio")
 
-    _guardar_palabras(sub_maker, os.path.join(ctx.dir("voz"), "palabras.json"))
+    palabras = _guardar_palabras(sub_maker, os.path.join(ctx.dir("voz"), "palabras.json"))
     ctx.avisar("calculando tiempos de cada frase", 70)
-    if config.app.get("subtitle_provider", "edge").strip().lower() == "edge":
+    if palabras and srt_de_palabras(texto, palabras, srt):
+        pass  # frases con los tiempos exactos de cada palabra
+    elif config.app.get("subtitle_provider", "edge").strip().lower() == "edge":
         voice.create_subtitle(text=texto, sub_maker=sub_maker, subtitle_file=srt)
     if not os.path.exists(srt):
         subtitle.create(audio_file=audio, subtitle_file=srt)
@@ -114,9 +149,42 @@ def _guardar_palabras(sub_maker, destino):
                         for t, (a, b) in zip(sub_maker.subs, sub_maker.offset)]
     except Exception:  # noqa: BLE001
         palabras = []
-    if palabras and all(len(t.split()) == 1 for _a, _b, t in palabras):
+    # edge agrupa a veces varias palabras en una marca ("8 de marzo", "239 personas"):
+    # se reparten a partes iguales para tener siempre UNA palabra por entrada.
+    sueltas = []
+    for a, b, t in palabras:
+        trozos = t.split()
+        paso = (b - a) / max(1, len(trozos))
+        sueltas += [[round(a + k * paso, 3), round(a + (k + 1) * paso, 3), w] for k, w in enumerate(trozos)]
+    if sueltas:
         with open(destino, "w", encoding="utf-8") as f:
-            json.dump(palabras, f, ensure_ascii=False)
+            json.dump(sueltas, f, ensure_ascii=False)
+    return sueltas
+
+
+# Fin de frase: signo de puntuacion seguido de espacio (asi "00:41" o "3.5" no cortan).
+FIN_FRASE = re.compile(r"(?<=[.!?;:,\u2026])\s+|\n+")
+
+
+def srt_de_palabras(texto, palabras, destino):
+    """SRT por frases con los tiempos de cada palabra. Solo si las palabras del
+    TTS cuadran una a una con las del guion; si no, False (se usa el de MPT)."""
+    frases = [f.strip() for f in FIN_FRASE.split(texto) if f and f.strip()]
+    if sum(len(f.split()) for f in frases) != len(palabras):
+        return False
+    lineas, k = [], 0
+    for n, frase in enumerate(frases, start=1):
+        m = len(frase.split())
+        a, b = palabras[k][0], palabras[k + m - 1][1]
+        k += m
+        limpio = frase.rstrip(",;:.")
+        lineas.append(utils.text_to_srt(n, limpio, a, b))
+    tiempos = [p[0] for p in palabras]
+    if any(y < x for x, y in zip(tiempos, tiempos[1:])):
+        return False
+    with open(destino, "w", encoding="utf-8") as f:
+        f.write("\n".join(lineas) + "\n")
+    return True
 
 
 def _voz_clonada(ctx, texto, audio, srt):

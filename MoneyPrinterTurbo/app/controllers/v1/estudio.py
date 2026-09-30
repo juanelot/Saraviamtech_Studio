@@ -14,6 +14,7 @@ from fastapi import Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
+from app.services import claude_cli
 from app.services.estudio import almacen, asistente, creaciones, grafo, maestros, medios, recursos, voz_clonada
 from app.services.estudio import miniatura as portada_video
 
@@ -577,6 +578,19 @@ def creaciones_entregables(mid: str, cid: str):
         return creaciones.preparar_entregables(mid, cid)
     except creaciones.ErrorCreacion as e:
         raise HTTPException(409, str(e))
+
+
+@router.post("/estudio/maestros/{mid}/creaciones/{cid}/video", summary="Crear un proyecto del Estudio con la creacion")
+def creaciones_video(mid: str, cid: str, body: dict = Body(...)):
+    _creacion(mid, cid)
+    try:
+        proyecto = creaciones.crear_video(mid, cid, body.get("narracion", ""), body.get("aspecto") or None,
+                                          body.get("voz") or None, body.get("titulo") or None)
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(400, str(e))
+    except claude_cli.LimiteAgotado as e:
+        raise HTTPException(429, str(e))
+    return {"proyecto": proyecto}
 
 
 @router.patch("/estudio/maestros/{mid}/creaciones/{cid}", summary="Renombrar o cambiar de modo (guiado/auto)")

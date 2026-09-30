@@ -112,8 +112,15 @@ opciones de cada paso, la recomendada con estrella, o texto libre) o Automatico 
 recomendada hasta el final; se puede parar). Al terminar se ordenan los ENTREGABLES (guion,
 escenas con prompt de imagen y de video, miniaturas, bloques) y se descargan guion.txt,
 prompts de imagen/video .txt (separados por linea en blanco) y script.json (extension de Flow).
-Las creaciones se guardan en storage/estudio/maestros/<id>/creaciones/. Crear video desde
-una creacion: pendiente (fase 3).
+Las creaciones se guardan en storage/estudio/maestros/<id>/creaciones/.
+Crear video en el Estudio (tarjeta arriba de los entregables): crea un proyecto ya relleno con
+las escenas FIJAS del prompt maestro y sus prompts (escenas.fijas; la etapa Escenas solo las
+coloca sobre la voz: por palabras si traen narracion, por duracion si no), asignacion por
+escenas y el formato. Narracion: "Su guion" (el del maestro, literal), "Guion demostracion"
+(Claude escribe una linea por escena contando lo que se ve), "Guion libre" (etapa Guion en
+modo redactar, editable) o "Sin voz" (voz = "ninguna": pista muda con la duracion de las
+escenas, sin subtitulos ni musica; el render usa el AUDIO DE LOS CLIPS). Despues: voz, subir
+en Contenido lo hecho en Flow (cada archivo con su numero de escena) y montar.
 La pantalla (estudio-ui): inicio con "Nuevo video" y tarjetas de "Mis videos" (Ver,
 Descargar, Editar, Duplicar, Renombrar, Borrar). Dentro de un video, 8 pasos arriba:
 Material, Guion, Voz, Escenas, Contenido, Ajuste, Video, Miniatura. Boton "Todo hasta el video" (arriba a la
