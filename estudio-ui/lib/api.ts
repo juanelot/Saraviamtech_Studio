@@ -304,6 +304,8 @@ export const creaciones = {
   cambiar: (mid: string, cid: string, cambios: { titulo?: string; modo?: Creacion["modo"] }) =>
     pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}`, { method: "PATCH", ...json(cambios) }),
   borrar: (mid: string, cid: string) => pedir<{ ok: boolean }>(`/maestros/${mid}/creaciones/${cid}`, { method: "DELETE" }),
+  escenas: (mid: string, cid: string, escenas: EscenaEntregable[]) =>
+    pedir<Creacion>(`/maestros/${mid}/creaciones/${cid}/escenas`, { method: "PUT", ...json({ escenas }) }),
   video: (mid: string, cid: string, datos: { narracion: Narracion; aspecto: string; titulo?: string }) =>
     pedir<{ proyecto: { id: string; titulo: string } }>(`/maestros/${mid}/creaciones/${cid}/video`, { method: "POST", ...json(datos) }),
 };

@@ -4,13 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Bot, CheckCircle2, Clapperboard, Download, FileText, Image as Imagen, Loader2, Pause, Play, RefreshCw, Send,
-  Sparkles, Star, Trash2, Video,
+  ArrowLeft, Bot, CheckCircle2, Clapperboard, Download, FileText, Image as Imagen, Loader2, Merge, Pause, Play, RefreshCw, Send,
+  Sparkles, Star, Trash2, Video, X,
 } from "lucide-react";
 import { AvisoError, Tarjeta } from "./ui";
 import TextoRico from "./TextoRico";
 import { Copiar } from "./paneles/PanelEscenas";
-import { creaciones, maestros, type Creacion, type Entregables, type FichaMaestro, type Narracion } from "@/lib/api";
+import {
+  creaciones, maestros, type Creacion, type EscenaEntregable, type Entregables, type FichaMaestro, type Narracion,
+} from "@/lib/api";
 
 export default function CreacionMaestro({ id, cid }: { id: string; cid: string }) {
   const router = useRouter();
@@ -189,7 +191,8 @@ export default function CreacionMaestro({ id, cid }: { id: string; cid: string }
             <CrearVideo c={c} mid={id} ficha={ficha} ocupado={ocupado || enviando} />
           )}
           <PanelEntregables c={c} ocupado={ocupado || enviando}
-            onPreparar={() => accion(() => creaciones.entregables(id, cid))} />
+            onPreparar={() => accion(() => creaciones.entregables(id, cid))}
+            onEscenas={(escenas) => accion(() => creaciones.escenas(id, cid, escenas))} />
         </aside>
       </div>
     </main>
@@ -278,7 +281,8 @@ function CrearVideo({ c, mid, ficha, ocupado }: { c: Creacion; mid: string; fich
           {creando && narracion === "demostracion" ? "Claude escribe la narracion…" : "Crear proyecto"}
         </button>
         <p className="text-xs text-tinta-3">
-          Se crea un video con las {e.escenas.length} escenas y sus prompts ya puestos. Luego: genera la voz, sube lo que
+          Se crea un video con {e.escenas.length === 1 ? "1 escena" : `las ${e.escenas.length} escenas`} y sus prompts ya
+          puestos (si sobra o falta alguna, unelas o quitalas abajo en Entregables). Luego: genera la voz, sube lo que
           hagas en Flow en el paso Contenido (cada archivo con su numero de escena) y monta el video.
         </p>
         {!!c.proyectos?.length && (
@@ -296,7 +300,24 @@ function CrearVideo({ c, mid, ficha, ocupado }: { c: Creacion; mid: string; fich
   );
 }
 
-function PanelEntregables({ c, ocupado, onPreparar }: { c: Creacion; ocupado: boolean; onPreparar: () => void }) {
+function juntar(a: string | null, b: string | null) {
+  return a && b ? `${a}\n\n${b}` : a || b;
+}
+
+// Unir dos escenas en una. Si solo una trae video, la otra era su imagen de
+// referencia (storyboard, primer fotograma): la duracion es la del video.
+function unir(a: EscenaEntregable, b: EscenaEntregable): EscenaEntregable {
+  const suma = a.duracion_s && b.duracion_s ? a.duracion_s + b.duracion_s : a.duracion_s || b.duracion_s;
+  const duracion = a.video && !b.video ? a.duracion_s : b.video && !a.video ? b.duracion_s : suma;
+  return {
+    n: a.n, narracion: [a.narracion, b.narracion].filter(Boolean).join(" ") || null,
+    imagen: juntar(a.imagen, b.imagen), video: juntar(a.video, b.video), duracion_s: duracion ?? null,
+  };
+}
+
+function PanelEntregables({ c, ocupado, onPreparar, onEscenas }: {
+  c: Creacion; ocupado: boolean; onPreparar: () => void; onEscenas: (escenas: EscenaEntregable[]) => void;
+}) {
   const e = c.entregables;
   const hayRespuestas = c.turnos.some((t) => t.rol === "claude");
   const base = slug(e?.titulo || c.titulo);
@@ -334,14 +355,45 @@ function PanelEntregables({ c, ocupado, onPreparar }: { c: Creacion; ocupado: bo
 
           {e.escenas.length > 0 && (
             <div>
-              <p className="etiqueta mb-2">{e.escenas.length} escenas</p>
+              <p className="etiqueta mb-2">{e.escenas.length === 1 ? "1 escena" : `${e.escenas.length} escenas`}</p>
               <ol className="space-y-2">
-                {e.escenas.map((s) => (
+                {e.escenas.map((s, k) => (
                   <li key={s.n}>
                     <details className="rounded-xl border border-linea bg-hundido/40 px-3 py-2">
                       <summary className="cursor-pointer list-none">
-                        <span className="font-semibold">Escena {s.n}</span>
-                        {s.duracion_s ? <span className="text-tinta-3"> · {s.duracion_s} s</span> : null}
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-semibold">Escena {s.n}</span>
+                          <span className="text-tinta-3">·</span>
+                          <input type="number" min={0.5} max={600} step={0.5} key={`${s.n}-${s.duracion_s}`}
+                            defaultValue={s.duracion_s ?? ""} placeholder="—" disabled={ocupado}
+                            title="Duracion de la escena en segundos"
+                            className="w-14 rounded-md border border-linea bg-tarjeta px-1.5 py-0.5 text-xs"
+                            onClick={(ev) => ev.stopPropagation()}
+                            onBlur={(ev) => {
+                              const v = ev.currentTarget.value === "" ? null : Number(ev.currentTarget.value);
+                              if (v !== s.duracion_s && (v === null || (v >= 0.5 && v <= 600)))
+                                onEscenas(e.escenas.map((x) => (x.n === s.n ? { ...x, duracion_s: v } : x)));
+                            }} />
+                          <span className="text-xs text-tinta-3">s</span>
+                          <span className="ml-auto flex gap-1">
+                            {k > 0 && (
+                              <button className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-tinta" disabled={ocupado}
+                                title="Unir con la escena anterior (p. ej. la imagen de referencia con su video)"
+                                onClick={(ev) => {
+                                  ev.preventDefault();
+                                  onEscenas([...e.escenas.slice(0, k - 1), unir(e.escenas[k - 1], s), ...e.escenas.slice(k + 1)]);
+                                }}><Merge size={13} /></button>
+                            )}
+                            {e.escenas.length > 1 && (
+                              <button className="rounded-md p-1 text-tinta-3 hover:bg-tarjeta hover:text-red-500" disabled={ocupado}
+                                title="Quitar esta escena"
+                                onClick={(ev) => {
+                                  ev.preventDefault();
+                                  if (confirm(`¿Quitar la escena ${s.n}?`)) onEscenas(e.escenas.filter((x) => x.n !== s.n));
+                                }}><X size={13} /></button>
+                            )}
+                          </span>
+                        </span>
                         {s.narracion && <span className="mt-0.5 line-clamp-2 block text-tinta-2">{s.narracion}</span>}
                       </summary>
                       <div className="mt-2 space-y-2">

@@ -84,6 +84,12 @@ Ordena lo que produjo en JSON para una app. COPIA los textos EXACTAMENTE como ap
 resumir, sin traducir, sin corregir): los prompts se pegan tal cual en herramientas de imagen/video.
 Si algo se genero varias veces, usa la ULTIMA version. Si algo no existe, pon null o [].
 
+ESCENAS: una escena es un TRAMO del video final (lo que se ve durante unos segundos). Cuenta
+solo las que el chat planteo como partes del video; puede ser UNA sola (un reel de 10 s).
+Una imagen que sirve para CREAR un video (storyboard, fotograma inicial o final, referencia,
+hoja de personaje) NO es otra escena: va en "imagen" de la MISMA escena que ese video.
+Si un prompt dice su duracion ("10-second video", "8 s"), ponla en duracion_s.
+
 <<<CHAT>>>
 {charla}
 <<<FIN>>>
@@ -373,8 +379,8 @@ contar, con naturalidad, lo que se ve en cada escena mientras ocurre (que pasa, 
 como suena o se siente), con un gancho en la primera linea y un cierre en la ultima.
 
 Idioma: {idioma}. Tono: {tono}
-Una linea por escena, en orden. Cada linea debe caber en la duracion de su escena
-(unas 2.5 palabras por segundo como maximo). Sin emojis, sin comillas, sin acotaciones.
+Una linea por escena, en orden. Cada linea debe llenar casi toda la duracion de su escena
+sin pasarse: entre 2 y 2.5 palabras por segundo. Sin emojis, sin comillas, sin acotaciones.
 
 ESCENAS (numero, duracion, lo que se ve segun su prompt):
 {escenas}
@@ -518,6 +524,26 @@ def _entregables(mid, cid):
             c = cargar(mid, cid)
             c.update({"entregables_estado": "error", "entregables_error": str(e)[:400]})
             _guardar(mid, c)
+
+
+def editar_escenas(mid, cid, escenas):
+    """La persona ajusta las escenas (unir, quitar, duracion); se renumeran 1..n."""
+    if not isinstance(escenas, list) or not escenas:
+        raise ErrorCreacion("el video necesita al menos una escena")
+    with almacen.candado(f"creacion-{cid}"):
+        c = cargar(mid, cid)
+        if not c.get("entregables"):
+            raise ErrorCreacion("todavia no hay entregables")
+        limpias = _limpiar_entregables({"escenas": escenas})["escenas"]
+        if not limpias:
+            raise ErrorCreacion("el video necesita al menos una escena")
+        for k, s in enumerate(limpias, 1):
+            s["n"] = k
+            if s["duracion_s"] is not None and not 0.5 <= s["duracion_s"] <= 600:
+                raise ErrorCreacion(f"escena {k}: duracion fuera de rango (0.5 a 600 s)")
+        c["entregables"]["escenas"] = limpias
+        _guardar(mid, c)
+    return cargar(mid, cid)
 
 
 def _texto(v):

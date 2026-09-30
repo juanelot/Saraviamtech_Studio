@@ -580,6 +580,15 @@ def creaciones_entregables(mid: str, cid: str):
         raise HTTPException(409, str(e))
 
 
+@router.put("/estudio/maestros/{mid}/creaciones/{cid}/escenas", summary="Editar a mano las escenas (unir, quitar, duracion)")
+def creaciones_escenas(mid: str, cid: str, body: dict = Body(...)):
+    _creacion(mid, cid)
+    try:
+        return creaciones.editar_escenas(mid, cid, body.get("escenas"))
+    except creaciones.ErrorCreacion as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/estudio/maestros/{mid}/creaciones/{cid}/video", summary="Crear un proyecto del Estudio con la creacion")
 def creaciones_video(mid: str, cid: str, body: dict = Body(...)):
     _creacion(mid, cid)

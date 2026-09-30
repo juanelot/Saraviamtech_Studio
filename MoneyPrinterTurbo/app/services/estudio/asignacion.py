@@ -204,10 +204,7 @@ def ejecutar(ctx):
             rid, motivo = fijados[i], "fijado a mano"
         r = por_id[rid]
         dur = x["fin"] - x["inicio"]
-        offset = 0.0
-        if r["tipo"] == "video" and r["duracion"] > dur:
-            offset = cursor[rid] if cursor[rid] + dur <= r["duracion"] else 0.0
-            cursor[rid] = offset + dur
+        offset = _seguir(cursor, rid, r, dur)
         salida.append({**x, "recurso": rid, "nombre": r["nombre"], "tipo": r["tipo"],
                        "ruta": r["ruta"], "dur_recurso": r.get("duracion", 0.0),
                        "offset": round(offset, 3), "motivo": motivo, "fijado": fijado})
@@ -216,6 +213,17 @@ def ejecutar(ctx):
     usados = len({s["recurso"] for s in salida})
     ctx.avisar(f"asignacion lista: {len(salida)} planos, {usados}/{len(recursos)} recursos usados", 100)
     return {"planos": salida, "recursos_usados": usados}
+
+
+def _seguir(cursor, rid, r, dur):
+    """Desde donde se corta un video que ya salio antes: sigue donde se quedo
+    (un clip repartido en varios planos no vuelve a empezar). Si lo que queda no
+    alcanza, toma el final del clip; ya visto entero, vuelve a empezar."""
+    if r["tipo"] != "video" or r["duracion"] <= dur:
+        return 0.0
+    offset = 0.0 if cursor[rid] >= r["duracion"] - 0.05 else min(cursor[rid], r["duracion"] - dur)
+    cursor[rid] = offset + dur
+    return offset
 
 
 def _ejecutar_escenas(ctx):
@@ -229,6 +237,7 @@ def _ejecutar_escenas(ctx):
     por_id = {r["id"]: r for r in recursos}
     eleccion, faltan = _por_escenas(escenas, recursos, p.get("preferir", "video"))
     fijados = {int(k): v for k, v in (p.get("fijados") or {}).items() if v in por_id}
+    cursor = Counter()
     salida = []
     for e in escenas:
         i = e["scene_number"] - 1
@@ -237,9 +246,10 @@ def _ejecutar_escenas(ctx):
         if fijado:
             rid, motivo = fijados[i], "fijado a mano"
         r = por_id[rid]
+        offset = _seguir(cursor, rid, r, e["fin"] - e["inicio"])
         salida.append({"i": i, "inicio": e["inicio"], "fin": e["fin"], "texto": e["narration"],
                        "escena": e["scene_number"], "recurso": rid, "nombre": r["nombre"], "tipo": r["tipo"],
-                       "ruta": r["ruta"], "dur_recurso": r.get("duracion", 0.0), "offset": 0.0,
+                       "ruta": r["ruta"], "dur_recurso": r.get("duracion", 0.0), "offset": round(offset, 3),
                        "motivo": motivo, "fijado": fijado})
     almacen.escribir_json(os.path.join(ctx.dir("asignacion"), "planos.json"), salida)
     if faltan:
