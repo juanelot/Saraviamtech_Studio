@@ -75,7 +75,10 @@ En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Vid
   (hasta 3 h; palabras = segundos x ~2.5) o usa el texto tal cual (modo literal).
   Editar el guion guarda `texto_manual`; "Rehacer con Claude" lo vacia.
 - Voz: TTS de MoneyPrinterTurbo (voces Azure/Edge). La narracion se corta en PLANOS
-  por sus pausas (plano_min_s / plano_max_s).
+  por sus pausas (plano_min_s / plano_max_s). Opcion "Voz clonada" (voz = "clon:<id>"):
+  la genera un servidor Clonar-voz externo (config estudio_voz_clonada_url), por bloques
+  de ~240 caracteres cacheados en voz/clon/; en CPU tarda 5-12x la duracion del audio.
+  Si falla, suele ser que el servidor de clonacion esta apagado o la voz se borro alli.
 - Recursos: imagenes y videos mezclados (subidos, carpeta del servidor o URLs). Claude
   mira una miniatura de cada uno y lo describe; catalogo global por hash, cacheado.
 - Planos (asignacion): Claude elige un recurso por plano segun lo que se dice; o en

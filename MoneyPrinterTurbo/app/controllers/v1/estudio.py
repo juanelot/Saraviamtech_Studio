@@ -10,11 +10,11 @@ import re
 import shutil
 import zipfile
 
-from fastapi import Body, File, HTTPException, Query, UploadFile
+from fastapi import Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.controllers.v1.base import new_router
-from app.services.estudio import almacen, asistente, grafo, medios, recursos
+from app.services.estudio import almacen, asistente, grafo, medios, recursos, voz_clonada
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -327,3 +327,39 @@ def asistente_ver(cid: str):
         return asistente.ver(cid)
     except asistente.ErrorAsistente as e:
         raise HTTPException(404, str(e))
+
+
+# ------------------------------------------------------------------ voz clonada
+
+@router.get("/estudio/voces-clonadas", summary="Voces del servidor de clonacion (si hay uno)")
+def voces_clonadas():
+    if not voz_clonada.url_base():
+        return {"activo": False, "voces": [], "error": None}
+    try:
+        return {"activo": True, "voces": voz_clonada.listar_voces(), "error": None}
+    except Exception as e:  # noqa: BLE001 — el servidor externo puede estar apagado
+        return {"activo": True, "voces": [], "error": f"no responde el servidor de voz clonada ({type(e).__name__})"}
+
+
+@router.post("/estudio/voces-clonadas", summary="Crear una voz a partir de 10-15 s de audio")
+async def voces_clonadas_crear(audio: UploadFile = File(...), nombre: str = Form(...),
+                               transcripcion: str = Form("")):
+    datos = await audio.read()
+    if len(datos) > 60 * 1024 * 1024:
+        raise HTTPException(413, "con 10-15 segundos de voz basta (maximo 60 MB)")
+    try:
+        return voz_clonada.crear_voz(nombre.strip()[:80] or "Mi voz", datos, audio.filename, transcripcion.strip()[:2000])
+    except voz_clonada.NoConfigurado as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"el servidor de voz clonada fallo: {e}")
+
+
+@router.get("/estudio/voces-clonadas/{vid}/audio", summary="Muestra de referencia de una voz")
+def voces_clonadas_audio(vid: str):
+    try:
+        return Response(voz_clonada.audio_voz(vid), media_type="audio/wav")
+    except ValueError:
+        raise HTTPException(400, "voz invalida")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(404, "no se pudo traer la muestra")

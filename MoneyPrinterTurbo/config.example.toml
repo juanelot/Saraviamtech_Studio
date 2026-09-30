@@ -68,6 +68,11 @@ claude_cli_path = ""          # vacio = buscar `claude` en el PATH
 # Vacio = cualquiera (uso local). En un VPS, limitalo: ["/recursos"]
 estudio_carpetas_permitidas = []
 
+# Estudio: servidor de voz clonada (github.com/jceronch1/Clonar-voz) en esta u
+# otra maquina, p. ej. "http://127.0.0.1:8095" o "https://usuario:clave@voz.midominio.com".
+# Vacio = sin voces clonadas (solo las de Microsoft).
+estudio_voz_clonada_url = ""
+
 ########## Pollinations AI Settings
 # Visit https://pollinations.ai/ to learn more
 # API Key is optional - leave empty for public access

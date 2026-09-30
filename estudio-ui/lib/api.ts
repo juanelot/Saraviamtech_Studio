@@ -144,6 +144,20 @@ export const api = {
     pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${nombre.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" }),
 };
 
+export interface VozClonada { id: string; nombre: string; duracion: number | null; transcripcion: string }
+export interface VocesClonadas { activo: boolean; voces: VozClonada[]; error: string | null }
+
+export const clonadas = {
+  listar: () => pedir<VocesClonadas>("/voces-clonadas"),
+  crear: (audio: Blob, nombre: string, transcripcion = "", archivo = "voz.wav") => {
+    const fd = new FormData();
+    fd.append("audio", audio, archivo);
+    fd.append("nombre", nombre);
+    fd.append("transcripcion", transcripcion);
+    return pedir<VozClonada>("/voces-clonadas", { method: "POST", body: fd });
+  },
+};
+
 export interface Turno { rol: "persona" | "asistente"; texto: string; t: number }
 export interface Charla { id: string; turnos: Turno[]; pensando: boolean; error: string | null }
 
@@ -161,6 +175,7 @@ export const url = {
   descargar: (id: string) => `${BASE}/proyectos/${id}/descargar`,
   scriptJson: (id: string) => `${BASE}/proyectos/${id}/script.json`,
   promptsTxt: (id: string) => `${BASE}/proyectos/${id}/prompts.txt`,
+  muestraClonada: (vid: string) => `${BASE}/voces-clonadas/${vid}/audio`,
 };
 
 export async function listarMusica(): Promise<string[]> {

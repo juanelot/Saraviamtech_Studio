@@ -12,7 +12,9 @@ import os
 
 from app.config import config
 from app.services import subtitle, voice
+from app.services.estudio import medios, voz_clonada
 from app.services.image_task import merge_short_segments, parse_segments
+from app.utils import utils
 
 DEFECTOS = {
     "voz": "es-ES-AlvaroNeural-Male",
@@ -52,6 +54,28 @@ def ejecutar(ctx):
         if os.path.exists(f):
             os.remove(f)
 
+    if str(p["voz"]).startswith("clon:"):
+        duracion = _voz_clonada(ctx, texto, audio, srt)
+    else:
+        duracion = _voz_tts(ctx, texto, audio, srt)
+    crudos = parse_segments(srt)
+    if not crudos:
+        raise RuntimeError("no salieron tiempos de la voz (SRT vacio)")
+
+    planos = merge_short_segments(crudos, float(p["plano_min_s"]), duracion)
+    planos = partir_largos(planos, max(float(p["plano_max_s"]), float(p["plano_min_s"]) + 0.5))
+    segmentos = [{"i": i, "inicio": round(a, 3), "fin": round(b, 3), "texto": t}
+                 for i, (a, b, t) in enumerate(planos)]
+    with open(os.path.join(carpeta, "planos.json"), "w", encoding="utf-8") as f:
+        json.dump(segmentos, f, ensure_ascii=False, indent=1)
+    ctx.avisar(f"voz lista: {duracion:.1f}s, {len(segmentos)} planos", 100)
+    return {"audio": "voz/voz.mp3", "srt": "voz/subtitulos.srt",
+            "duracion": round(duracion, 3), "planos": segmentos}
+
+
+def _voz_tts(ctx, texto, audio, srt):
+    """Voces de Microsoft (y demas TTS de MPT): dan el tiempo de cada palabra."""
+    p = ctx.params
     ctx.avisar(f"sintetizando voz {p['voz']}", 10)
     sub_maker = voice.tts(
         text=texto,
@@ -72,16 +96,32 @@ def ejecutar(ctx):
     if not os.path.exists(srt):
         subtitle.create(audio_file=audio, subtitle_file=srt)
         subtitle.correct(subtitle_file=srt, video_script=texto)
-    crudos = parse_segments(srt)
-    if not crudos:
-        raise RuntimeError("no salieron tiempos de la voz (SRT vacio)")
+    return duracion
 
-    planos = merge_short_segments(crudos, float(p["plano_min_s"]), duracion)
-    planos = partir_largos(planos, max(float(p["plano_max_s"]), float(p["plano_min_s"]) + 0.5))
-    segmentos = [{"i": i, "inicio": round(a, 3), "fin": round(b, 3), "texto": t}
-                 for i, (a, b, t) in enumerate(planos)]
-    with open(os.path.join(carpeta, "planos.json"), "w", encoding="utf-8") as f:
-        json.dump(segmentos, f, ensure_ascii=False, indent=1)
-    ctx.avisar(f"voz lista: {duracion:.1f}s, {len(segmentos)} planos", 100)
-    return {"audio": "voz/voz.mp3", "srt": "voz/subtitulos.srt",
-            "duracion": round(duracion, 3), "planos": segmentos}
+
+def _voz_clonada(ctx, texto, audio, srt):
+    """Servidor Clonar-voz externo: bloques cacheados + tiempos por bloque."""
+    p = ctx.params
+    vid = str(p["voz"])[len("clon:"):]
+    idioma = str(ctx.params_de("guion").get("idioma") or "es").split("-")[0]
+    wav = os.path.join(ctx.dir("voz"), "clon.wav")
+    segmentos = voz_clonada.sintetizar(ctx, texto, vid, idioma, wav)
+
+    ctx.avisar("convirtiendo la narracion", 70)
+    vel = min(2.0, max(0.5, float(p["velocidad"] or 1.0)))
+    args = [medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", wav]
+    if abs(vel - 1.0) > 1e-3:
+        args += ["-filter:a", f"atempo={vel}"]
+    r = medios.correr(args + ["-c:a", "libmp3lame", "-q:a", "2", audio], timeout=1800)
+    if r.returncode != 0 or not os.path.exists(audio):
+        raise RuntimeError(f"ffmpeg no pudo convertir la voz clonada: {r.stderr[-300:]}")
+    os.remove(wav)
+    duracion = float(medios.sondear(audio).get("duracion") or 0)
+    if duracion <= 0:
+        raise RuntimeError("no se pudo medir la duracion de la voz clonada")
+
+    lineas = [utils.text_to_srt(i, t, a / vel, min(b / vel, duracion))
+              for i, (a, b, t) in enumerate(segmentos, start=1)]
+    with open(srt, "w", encoding="utf-8") as f:
+        f.write("\n".join(lineas) + "\n")
+    return duracion
