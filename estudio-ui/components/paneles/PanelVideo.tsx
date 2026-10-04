@@ -21,7 +21,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
   const s = (k: string) => (v: unknown) => set("render", k, v);
   // Por las medidas del video YA montado (el formato elegido puede haber cambiado despues).
   const ancho = et.salida?.ancho || 0, alto = et.salida?.alto || 0;
-  const vertical = ancho && alto ? alto > ancho * 1.05 : r.aspecto === "9:16";
+  const vertical = ancho && alto ? alto > ancho * 1.05 : (r.aspecto || "16:9") === "9:16";
   const cuadrado = ancho > 0 && Math.abs(ancho - alto) <= ancho * 0.05;
   const intenso = r.edicion === "intenso";
   const editorial = r.edicion === "editorial" || intenso;
@@ -168,7 +168,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
         <Tarjeta titulo="Imagen">
           <div className="space-y-4">
             <Campo etiqueta="Formato">
-              <Segmentado valor={(r.aspecto as string) || "9:16"} onChange={s("aspecto")}
+              <Segmentado valor={(r.aspecto as string) || "16:9"} onChange={s("aspecto")}
                 opciones={[{ v: "9:16", t: "Vertical 9:16" }, { v: "16:9", t: "Horizontal 16:9" }, { v: "1:1", t: "Cuadrado" }]} />
             </Campo>
             <Campo etiqueta="Si el recurso no encaja">

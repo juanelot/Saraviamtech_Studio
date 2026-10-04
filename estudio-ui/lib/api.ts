@@ -54,7 +54,10 @@ export interface SalidaVoz {
   texto?: string; texto_de?: "guion" | "transcripcion"; coincidencia?: number; idioma_detectado?: string;
 }
 export interface SalidaRecursos { recursos: Recurso[]; total: number; imagenes: number; videos: number; sin_descripcion: number }
-export interface SalidaEscenas { escenas: Escena[]; total: number; con_prompt: number; generar: string; script: string }
+export interface SalidaEscenas {
+  escenas: Escena[]; total: number; con_prompt: number; generar: string; script: string;
+  aspecto?: string; avisos?: { escena: number | null; problemas: string[] }[];
+}
 export interface SalidaAsignacion { planos: Plano[]; recursos_usados: number; faltan?: number[] }
 export interface SalidaRender {
   mp4: string; duracion: number; ancho: number; alto: number;

@@ -72,7 +72,7 @@ export default function PanelMiniatura({ id, vista, p }: PanelProps) {
 
   if (!est || !params) return <Loader2 className="animate-spin text-tinta-3" />;
 
-  const vertical = ["9:16", "4:5"].includes(String(p("render").aspecto || "9:16"));
+  const vertical = ["9:16", "4:5"].includes(String(p("render").aspecto || "16:9"));
   const aspecto = vertical ? "aspect-[9/16] max-w-[260px]" : "aspect-video";
   const recursos = vista.etapas.recursos.salida?.recursos || [];
   const hayGuion = !!vista.etapas.guion.salida?.texto;

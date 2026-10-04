@@ -93,6 +93,13 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
           <div className={`grid gap-5 lg:grid-cols-[1.4fr_1fr] ${fijas.length ? "hidden" : ""}`}>
             <Tarjeta titulo="Escenas y prompts">
               <div className="space-y-4">
+                <Campo etiqueta="Formato" ayuda="El mismo para las imagenes y para el video final (es el del paso Video).">
+                  <Segmentado
+                    valor={(p("render").aspecto as string) || "16:9"}
+                    onChange={(v) => set("render", "aspecto", v)}
+                    opciones={[{ v: "16:9", t: "Horizontal 16:9" }, { v: "9:16", t: "Vertical 9:16" }, { v: "1:1", t: "Cuadrado" }]}
+                  />
+                </Campo>
                 <Campo etiqueta="Que prompts quieres">
                   <Segmentado
                     valor={generar}
@@ -166,6 +173,24 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
                   (1.png, scene_2.mp4…).
                 </p>
               </Tarjeta>
+
+              {(et.salida.avisos?.length ?? 0) > 0 && (
+                <div className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">
+                  <p className="font-semibold">
+                    La validacion encontro problemas (ya se reintento con Claude). Revisa o corrige a mano:
+                  </p>
+                  <ul className="mt-1.5 max-h-48 list-disc space-y-0.5 overflow-auto pl-5">
+                    {et.salida.avisos!.map((a, k) => (
+                      <li key={k}>{a.escena ? `Escena ${a.escena}: ` : ""}{a.problemas.join("; ")}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {et.salida.avisos && et.salida.avisos.length === 0 && generar !== "no" && (
+                <p className="text-xs text-ok">
+                  Validacion OK: formato {et.salida.aspecto}, narracion identica al guion, imagenes fijas y escenas consecutivas.
+                </p>
+              )}
 
               {et.estado === "obsoleta" && (
                 <p className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">

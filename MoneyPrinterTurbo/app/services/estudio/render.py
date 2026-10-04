@@ -22,7 +22,7 @@ from app.services import video as mpt_video
 from app.services.estudio import acabado, edicion, medios
 
 DEFECTOS = {
-    "aspecto": "9:16",
+    "aspecto": "16:9",
     "encaje": "desenfoque",
     "zoom": 0.08,
     "subtitulos": True,

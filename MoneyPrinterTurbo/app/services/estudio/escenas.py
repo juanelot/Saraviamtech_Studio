@@ -26,9 +26,13 @@ Prompts: `generar` = "no" (solo agrupa, sin Claude) | "imagenes" |
 entradas (escenas/base.json): corregir un prompt a mano (`ediciones`) no vuelve
 a llamar a Claude.
 """
+import bisect
+import difflib
 import hashlib
 import json
 import os
+import re
+import unicodedata
 
 from loguru import logger
 
@@ -133,17 +137,66 @@ def fijas_en_tiempo(fijas, planos, duracion, tiempos):
     return escenas
 
 
-def _prompt(tanda, guion, p, aspecto, con_video, total):
-    estilo = (p.get("estilo") or "").strip() or "(elige un estilo visual coherente y cinematografico para el tema)"
-    indic = (p.get("indicaciones") or "").strip() or "(ninguna)"
+FORMATOS = {
+    # (como se le pide a Claude, palabras que NO pueden salir en un prompt de ese formato)
+    "16:9": ("16:9 landscape widescreen", ["9:16", "vertical", "portrait"]),
+    "9:16": ("9:16 vertical portrait", ["16:9", "landscape", "widescreen"]),
+    "1:1": ("1:1 square", ["9:16", "16:9", "vertical", "portrait", "landscape", "widescreen"]),
+}
+# Una imagen fija no lleva movimiento, camara ni tiempos.
+PROHIBIDAS_IMAGEN = ["seconds", "camera", "motion", "push-in", "zoom"]
+CONTINUIDAD = 3        # escenas ya escritas que se pasan para mantener la continuidad
+REINTENTOS = 2         # rondas para rehacer las escenas que no pasan la validacion
+VERSION_PROMPTS = "2"  # v2: formato explicito, imagen fija, contexto igual en todos los lotes
+
+
+def _formato(aspecto):
+    return FORMATOS.get(aspecto, FORMATOS["16:9"])
+
+
+def _contiene(texto, termino):
+    if ":" in termino:
+        return termino in texto
+    return re.search(rf"\b{re.escape(termino)}\b", texto, re.IGNORECASE) is not None
+
+
+def problemas_prompt(prompt, aspecto):
+    """Lo que falla en un image_prompt: vacio, formato contrario o movimiento."""
+    if not (prompt or "").strip():
+        return ["sin prompt de imagen"]
+    salida = []
+    malas = [t for t in _formato(aspecto)[1] if _contiene(prompt, t)]
+    if malas:
+        salida.append(f"formato contrario ({', '.join(malas)})")
+    mov = [t for t in PROHIBIDAS_IMAGEN if _contiene(prompt, t)]
+    if mov:
+        salida.append(f"movimiento en una imagen fija ({', '.join(mov)})")
+    return salida
+
+
+def _prompt(tanda, guion, p, aspecto, con_video, total, previas=(), arreglar=None):
+    estilo = (p.get("estilo") or "").strip()
+    indic = (p.get("indicaciones") or "").strip() or "(none)"
     idioma = NOMBRE_IDIOMA.get(p["idioma_prompts"], p["idioma_prompts"])
-    formato = {"9:16": "vertical 9:16", "16:9": "horizontal 16:9", "1:1": "square 1:1"}.get(aspecto, aspecto)
+    formato, prohibidas = _formato(aspecto)
     lista = "\n".join(f"{e['scene_number']} ({e['duracion']:.1f}s): {e['narration']}" for e in tanda)
     campos = '"image_prompt": "..."' + (', "video_prompt": "..."' if con_video else "")
     extra_video = (
         "\n- video_prompt: animates THAT image (image-to-video, ~8 s clip): camera movement, subject motion, "
-        "atmosphere changes. One or two sentences, no cuts, no text overlays." if con_video else ""
+        "atmosphere changes. One or two sentences, no cuts, no text overlays. Motion goes ONLY here." if con_video else ""
     )
+    continuidad = ""
+    if previas:
+        continuidad = ("\n\nPREVIOUS SCENES (already written; keep characters, places and style consistent):\n"
+                       + "\n".join(f"{e['scene_number']}: narration: {e['narration']}\n   image_prompt: {e['image_prompt']}"
+                                    for e in previas))
+    rehacer = ""
+    if arreglar:
+        rehacer = ("\n\nTHESE SCENES WERE REJECTED by an automatic check; rewrite them and avoid the problem:\n"
+                   + "\n".join(f"- scene {n}: {', '.join(m)}" for n, m in arreglar.items()))
+    regla_estilo = ("- Include the VISUAL STYLE text in every image_prompt, word for word (do not paraphrase it)."
+                    if estilo else
+                    "- Choose ONE coherent cinematic visual style and use the same wording in every image_prompt.")
     return f"""You are a visual director. Write prompts to CREATE the visuals of a narrated video,
 one per scene, that the person will generate manually in Google Flow (or similar).
 
@@ -152,19 +205,25 @@ FULL SCRIPT (context: characters, places, era, tone):
 {guion}
 >>>
 
-VISUAL STYLE (apply to EVERY image): {estilo}
-FRAME FORMAT: {formato}
-EXTRA INSTRUCTIONS: {indic}
-Total scenes in the video: {total}
+VISUAL STYLE (apply to EVERY image): {estilo or "(not given)"}
+FRAME FORMAT: {formato}. Mandatory for every scene; it overrides anything else.
+EXTRA INSTRUCTIONS (apply to EVERY scene): {indic}
+Total scenes in the video: {total}{continuidad}
 
-SCENES (number (duration): narration spoken during that scene):
-{lista}
+SCENES TO WRITE NOW (number (duration): narration spoken during that scene):
+{lista}{rehacer}
 
 Rules:
 - Language of the prompts: {idioma}.
-- image_prompt: ONE self-contained paragraph (the generator does not see other scenes): subject,
-  action, setting, era, lighting, composition and camera framing, style. Repeat the SAME physical
-  description of recurring characters/places in every scene where they appear, so they stay consistent.
+- image_prompt: ONE self-contained paragraph (the generator does not see other scenes) describing a
+  single STILL image: subject, action frozen in that instant, setting, era, lighting, composition
+  (shot type and angle), style. Repeat the SAME physical description of recurring characters/places in
+  every scene where they appear, so they stay consistent.
+- image_prompt is a still picture: never mention movement, time or duration (no "seconds", "camera",
+  "motion", "push-in", "zoom", "pan", "animated").
+{regla_estilo}
+- State the frame format as "{formato}" in every image_prompt. Never write these words, in any
+  sense: {", ".join(prohibidas)}.
 - Illustrate what is SAID in that scene; be concrete, avoid abstract words.
 - No text, letters, logos or watermarks in the image unless the scene truly needs it.{extra_video}
 - Single line strings: no line breaks, no markdown, no bullet points.
@@ -174,35 +233,153 @@ Return ONLY JSON, one element per scene of the list:
 
 
 def _clave(escenas, guion, p, aspecto):
-    datos = {"n": [(e["scene_number"], e["narration"], e["duracion"]) for e in escenas], "guion": guion,
+    datos = {"v": VERSION_PROMPTS, "n": [(e["scene_number"], e["narration"], e["duracion"]) for e in escenas],
+             "guion": guion,
              "p": {k: p.get(k) for k in ("generar", "estilo", "indicaciones", "idioma_prompts", "modelo", "esfuerzo")},
              "aspecto": aspecto}
     return hashlib.sha256(json.dumps(datos, ensure_ascii=False).encode()).hexdigest()[:20]
 
 
+def _pedir(tanda, guion, p, aspecto, con_video, total, previas, arreglar=None):
+    texto = claude_cli.ejecutar(_prompt(tanda, guion, p, aspecto, con_video, total, previas, arreglar),
+                                modelo=p["modelo"], esfuerzo=p["esfuerzo"],
+                                tiempo_max_s=min(3600, 240 + 12 * len(tanda)))
+    try:
+        datos = claude_cli.extraer_json(texto)
+    except ValueError as e:
+        logger.warning(f"escenas {tanda[0]['scene_number']}-{tanda[-1]['scene_number']}: sin JSON valido ({e})")
+        datos = []
+    validos = {e["scene_number"] for e in tanda}
+    salida = {}
+    for d in datos if isinstance(datos, list) else []:
+        try:
+            n = int(d.get("scene_number"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if n in validos:
+            salida[n] = {"image_prompt": " ".join(str(d.get("image_prompt", "")).split()),
+                         "video_prompt": " ".join(str(d.get("video_prompt", "")).split()) if con_video else ""}
+    return salida
+
+
 def _con_claude(escenas, guion, p, aspecto, ctx):
+    """Todos los lotes reciben el MISMO contexto (guion entero, estilo, indicaciones,
+    formato, idioma) mas las ultimas escenas ya escritas. Despues se validan y las
+    que fallan se rehacen (hasta REINTENTOS rondas)."""
     con_video = p["generar"] == "imagenes_videos"
+    por_n = {e["scene_number"]: e for e in escenas}
     tandas = [escenas[i:i + TANDA] for i in range(0, len(escenas), TANDA)]
     resultado = {}
+
+    def previas_a(n):
+        hechas = [k for k in sorted(resultado) if k < n and resultado[k].get("image_prompt")][-CONTINUIDAD:]
+        return [{**por_n[k], **resultado[k]} for k in hechas]
+
     for k, tanda in enumerate(tandas):
         ctx.avisar(f"Claude escribiendo prompts: escenas {tanda[0]['scene_number']}-{tanda[-1]['scene_number']}"
-                   f" ({k + 1}/{len(tandas)})", 10 + 80 * k / len(tandas))
-        texto = claude_cli.ejecutar(_prompt(tanda, guion, p, aspecto, con_video, len(escenas)),
-                                    modelo=p["modelo"], esfuerzo=p["esfuerzo"],
-                                    tiempo_max_s=min(3600, 240 + 12 * len(tanda)))
-        try:
-            datos = claude_cli.extraer_json(texto)
-        except ValueError as e:
-            logger.warning(f"tanda {k + 1}: sin JSON valido ({e})")
-            datos = []
-        for d in datos if isinstance(datos, list) else []:
-            try:
-                n = int(d.get("scene_number"))
-            except (TypeError, ValueError):
-                continue
-            resultado[n] = {"image_prompt": " ".join(str(d.get("image_prompt", "")).split()),
-                            "video_prompt": " ".join(str(d.get("video_prompt", "")).split()) if con_video else ""}
+                   f" ({k + 1}/{len(tandas)})", 10 + 70 * k / len(tandas))
+        resultado.update(_pedir(tanda, guion, p, aspecto, con_video, len(escenas),
+                                previas_a(tanda[0]["scene_number"])))
+
+    for ronda in range(REINTENTOS):
+        malas = {e["scene_number"]: problemas_prompt(resultado.get(e["scene_number"], {}).get("image_prompt"), aspecto)
+                 for e in escenas}
+        malas = {n: m for n, m in malas.items() if m}
+        if not malas:
+            break
+        ctx.avisar(f"rehaciendo {len(malas)} escenas que no pasaron la validacion (ronda {ronda + 1})", 82 + 6 * ronda)
+        lista = [por_n[n] for n in sorted(malas)]
+        for i in range(0, len(lista), TANDA):
+            trozo = lista[i:i + TANDA]
+            resultado.update(_pedir(trozo, guion, p, aspecto, con_video, len(escenas),
+                                    previas_a(trozo[0]["scene_number"]),
+                                    {e["scene_number"]: malas[e["scene_number"]] for e in trozo}))
     return resultado
+
+
+def _norm(w):
+    t = unicodedata.normalize("NFD", w.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^\w%$€]+", "", t)
+
+
+def texto_guion(ctx, voz, planos):
+    """El texto ORIGINAL con su puntuacion: el de la voz propia (si lo hay), el del
+    guion, o como ultimo recurso el de los planos (sin puntuacion)."""
+    if (voz.get("texto") or "").strip():
+        return voz["texto"].strip()
+    ruta = ctx.dir("guion", "guion.txt", crear=False)
+    if os.path.isfile(ruta):
+        with open(ruta, encoding="utf-8") as f:
+            texto = f.read().strip()
+        if texto:
+            return texto
+    return " ".join(x["texto"] for x in planos)
+
+
+def narraciones_exactas(escenas, planos, texto):
+    """Pone en cada escena el trozo EXACTO del guion (con puntuacion) que se dice en
+    ella. Se corta en codigo: las palabras de los planos (sin puntuacion) se casan
+    con las del guion y cada frontera de escena cae en la palabra que le toca."""
+    guion = texto.split()
+    if not guion or not escenas:
+        return
+    texto_planos = {x["i"]: x["texto"] for x in planos}
+    dichas, fronteras = [], []
+    for e in escenas:
+        fronteras.append(len(dichas))
+        for i in e["planos"]:
+            dichas += texto_planos.get(i, "").split()
+    sm = difflib.SequenceMatcher(None, [_norm(w) for w in dichas], [_norm(w) for w in guion], autojunk=False)
+    mapa = {}
+    for b in sm.get_matching_blocks():
+        for k in range(b.size):
+            mapa[b.a + k] = b.b + k
+    casadas = sorted(mapa)
+
+    def en_guion(j):
+        if j <= 0:
+            return 0
+        if j >= len(dichas):
+            return len(guion)
+        if j in mapa:
+            return mapa[j]
+        pos = bisect.bisect_left(casadas, j)
+        antes = casadas[pos - 1] if pos > 0 else None
+        despues = casadas[pos] if pos < len(casadas) else None
+        if antes is not None and despues is not None:
+            return round(mapa[antes] + (mapa[despues] - mapa[antes]) * (j - antes) / (despues - antes))
+        if antes is not None:
+            return min(len(guion), mapa[antes] + (j - antes))
+        if despues is not None:
+            return max(0, mapa[despues] - (despues - j))
+        return round(j * len(guion) / len(dichas))
+
+    cortes = [en_guion(j) for j in fronteras] + [len(guion)]
+    cortes[0] = 0
+    for k in range(1, len(cortes)):
+        cortes[k] = min(len(guion), max(cortes[k], cortes[k - 1]))
+    for k, e in enumerate(escenas):
+        e["narration"] = " ".join(guion[cortes[k]:cortes[k + 1]])
+
+
+def validar(escenas, texto, aspecto, generar, fijas):
+    """Comprobaciones finales sobre lo que se va a guardar en script.json."""
+    avisos = []
+    nums = [e["scene_number"] for e in escenas]
+    if nums != list(range(1, len(escenas) + 1)):
+        avisos.append({"escena": None, "problemas": ["los numeros de escena no son consecutivos desde 1"]})
+    if not fijas and " ".join(e["narration"] for e in escenas).split() != texto.split():
+        avisos.append({"escena": None, "problemas": ["la narracion unida no coincide con el guion original"]})
+    if any(not e["narration"].strip() for e in escenas) and not fijas:
+        vacias = [e["scene_number"] for e in escenas if not e["narration"].strip()]
+        avisos.append({"escena": None, "problemas": [f"escenas sin narracion: {vacias[:10]}"]})
+    if generar in ("imagenes", "imagenes_videos"):
+        for e in escenas:
+            m = problemas_prompt(e["image_prompt"], aspecto)
+            if m:
+                avisos.append({"escena": e["scene_number"], "problemas": m})
+    return avisos
 
 
 def ejecutar(ctx):
@@ -218,10 +395,15 @@ def ejecutar(ctx):
     else:
         escenas = agrupar(planos, float(p["segundos"] or 0))
     carpeta = ctx.dir("escenas")
-    aspecto = ctx.params_de("render").get("aspecto", "9:16")
+    # Un solo formato para imagenes y montaje: el del paso Video (16:9 por defecto).
+    aspecto = ctx.params_de("render").get("aspecto") or "16:9"
+    guion = texto_guion(ctx, voz, planos)
+    if not fijas:
+        # La narracion es el texto EXACTO del guion (con puntuacion), cortado aqui;
+        # Claude solo escribe los prompts.
+        narraciones_exactas(escenas, planos, guion)
 
     if p["generar"] in ("imagenes", "imagenes_videos") and not fijas:
-        guion = " ".join(x["texto"] for x in planos)
         ruta_base = os.path.join(carpeta, "base.json")
         clave = _clave(escenas, guion, p, aspecto)
         base = almacen.leer_json(ruta_base, {}) or {}
@@ -245,10 +427,14 @@ def ejecutar(ctx):
                 e[campo] = " ".join(ed[campo].split())
                 e[f"{campo}_editado"] = True
 
+    avisos = validar(escenas, guion, aspecto, p["generar"], bool(fijas))
+    if avisos:
+        logger.warning(f"escenas: {len(avisos)} avisos de validacion: {avisos[:5]}")
     script = {"scenes": [{"scene_number": e["scene_number"], "image_prompt": e["image_prompt"],
                           "video_prompt": e["video_prompt"], "narration": e["narration"]} for e in escenas]}
     almacen.escribir_json(os.path.join(carpeta, "script.json"), script)
     con_prompt = sum(1 for e in escenas if e["image_prompt"])
-    ctx.avisar(f"{len(escenas)} escenas, {con_prompt} con prompt de imagen", 100)
+    ctx.avisar(f"{len(escenas)} escenas, {con_prompt} con prompt de imagen"
+               + (f", {len(avisos)} avisos de validacion" if avisos else ", validacion OK"), 100)
     return {"escenas": escenas, "total": len(escenas), "con_prompt": con_prompt,
-            "generar": p["generar"], "script": "escenas/script.json"}
+            "generar": p["generar"], "script": "escenas/script.json", "aspecto": aspecto, "avisos": avisos}
