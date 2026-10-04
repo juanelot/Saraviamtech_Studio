@@ -1,43 +1,29 @@
-# MoneyPrinterTurbo — SaraviaMtech Edition
+# Saraviamtech Studio
 
-Una versión mejorada de [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) con una interfaz web moderna construida desde cero en **Next.js 16 + TypeScript**.
-
-> **Créditos:** Este proyecto está basado en [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) de [@harry0703](https://github.com/harry0703). Todos los créditos del motor de generación de videos (FastAPI backend, FFmpeg pipeline, Azure TTS, Pexels/Pixabay integration) corresponden al proyecto original.
+Sistema de creación de video con IA desarrollado por **[Saraviamtech](https://github.com/juanelot)**: del tema o el guion al video final montado, con voz, subtítulos animados, edición y miniatura.
 
 ---
 
 ## ¿Qué es?
 
-Genera videos cortos virales automáticamente con IA:
+Saraviamtech Studio reúne dos aplicaciones sobre un mismo motor de video:
 
-1. **Guión** — GPT-4o mini escribe el guión según tu tema
-2. **Voz** — Azure TTS Edge sintetiza la narración (331+ voces, gratis)
-3. **Clips** — Descarga clips de Pexels, Pixabay, o usa tus propios videos
-4. **Video final** — FFmpeg ensambla, añade subtítulos quemados y música de fondo
+- **Estudio por etapas** (`estudio-ui`, puerto 3100), la aplicación principal. Trabaja con tus propios recursos y usa Claude como cerebro: guion → voz → escenas y prompts → contenido → ajuste → video → miniatura. Incluye prompts maestros, series, voz clonada, narración propia y tres estilos de edición.
+- **Creador rápido** (`mpt-ui`, puerto 3000). Genera videos cortos en un clic:
+  1. **Guion:** la IA lo escribe según tu tema.
+  2. **Voz:** más de 331 voces neuronales gratuitas.
+  3. **Clips:** de Pexels o Pixabay, o tus propios videos e imágenes.
+  4. **Video final:** se ensambla con subtítulos quemados y música de fondo.
 
----
-
-## Mejoras de esta versión (SaraviaMtech UI)
-
-| Característica | Original (Streamlit) | Esta versión (Next.js) |
-|---|---|---|
-| Interfaz | Streamlit básico | Dark theme moderno, animaciones |
-| Voces disponibles | Manual (~80) | 331 voces Azure + 40+ adicionales |
-| Logs en tiempo real | Terminal externa | Panel visual en la UI |
-| Timeout FFmpeg | Sin aviso | Banner automático + 30 min de espera |
-| Biblioteca de videos | No existe | Grid con player, descarga y eliminación |
-| Medios locales | Solo ruta manual | Subida de archivos desde la UI |
-| Caché de clips | No gestionable | Botón limpiar caché con info de tamaño |
-| Fuente de clips | Pexels solamente | Pexels + Pixabay + Local |
-| Preview de voz | No existe | Preview con player de audio integrado |
+El creador rápido también trae panel de logs en tiempo real, biblioteca de videos, preview de voz, subida de medios y de música, modo de imágenes sincronizadas con la voz y una CLI de automatización.
 
 ---
 
 ## Estructura del proyecto
 
 ```
-MoneyPrinterTurbo_saraviamtech/
-├── MoneyPrinterTurbo/          # Backend Python (FastAPI) — proyecto original
+Saraviamtech_Studio/
+├── MoneyPrinterTurbo/          # Backend Python (FastAPI): motor de video y API del Estudio
 │   ├── app/
 │   ├── storage/
 │   │   ├── tasks/              # Videos generados
@@ -45,7 +31,8 @@ MoneyPrinterTurbo_saraviamtech/
 │   │   └── local_videos/       # Tus videos locales
 │   ├── config.toml             # Configuración principal
 │   └── main.py
-└── mpt-ui/                     # Frontend Next.js (esta mejora)
+├── estudio-ui/                 # Estudio por etapas (Next.js 16)
+└── mpt-ui/                     # Creador rápido (Next.js 16)
     ├── app/
     │   ├── page.tsx            # Root — tabs Crear / Mis videos
     │   └── api/library/        # API para gestión de biblioteca
@@ -73,8 +60,8 @@ MoneyPrinterTurbo_saraviamtech/
 ### 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/juanelot/MoneyPrinterTurbo_saraviamtech.git
-cd MoneyPrinterTurbo_saraviamtech
+git clone https://github.com/juanelot/Saraviamtech_Studio.git
+cd Saraviamtech_Studio
 ```
 
 ### ⚠️ Requisito: Git LFS
@@ -168,7 +155,7 @@ material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐ 
                                      recursos (tus archivos) ────────┴→ ajuste (por escena, o Claude elige) → video
 ```
 
-- **Por etapas y con firma.** Cada etapa guarda la firma de sus entradas (idea tomada de AS Video Studio). Si cambias algo, solo se rehace lo que dependía de eso: otra música rehace el acabado, fijar un plano a mano rehace ese clip, y editar el guion rehace la voz y lo que viene después.
+- **Por etapas y con firma.** Cada etapa guarda la firma de sus entradas. Si cambias algo, solo se rehace lo que dependía de eso: otra música rehace el acabado, fijar un plano a mano rehace ese clip, y editar el guion rehace la voz y lo que viene después.
 - **Catálogo visual.** Claude mira una miniatura de cada recurso (en los videos, 3 fotogramas) y escribe una descripción que puedes corregir. Va por hash de contenido y se cachea, así que un archivo nunca se describe dos veces.
 - **Planos.** La voz se corta en planos según sus pausas, igual que en el modo local. Claude elige qué recurso va en cada plano según lo que se dice ahí. Cualquier plano se puede fijar a mano.
 - **Render rápido.** Se genera un clip por plano con ffmpeg (zoom lento en las imágenes y bucle en los videos cortos) y los clips se cachean. El acabado (subtítulos ASS, voz y música) se hace en una sola pasada de ffmpeg: ~25 s frente a ~8 min del acabado MoviePy clásico, que sigue disponible como opción.
@@ -178,7 +165,7 @@ material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐ 
   Después generas el contenido tú mismo y en **Contenido** subes la carpeta de la extensión (`images/` y `videos/`), un ZIP o archivos sueltos. Cada archivo va a su escena según el número de su nombre (`1.png`, `scene_2.mp4`); si una escena tiene imagen y video, se usa el video. Al final revisas en **Ajuste** y montas el video.
 
   Con el CLI: `--asignacion escenas --generar imagenes_videos --hasta escenas --exportar-json ./carpeta/script.json`, y después `--proyecto <id> --contenido-dir ./carpeta`.
-- **Edición editorial.** En el paso Video eliges el estilo *Clásico* o *Editorial*. El editorial aplica efectos sobrios de documental; cada uno se activa o desactiva por separado:
+- **Edición editorial.** En el paso Video eliges el estilo *Clásico*, *Editorial* o *Intenso*. El editorial aplica efectos sobrios de documental; cada uno se activa o desactiva por separado:
   - **Subtítulos palabra por palabra:** la palabra que suena se ilumina y la palabra clave de cada frase va en color.
   - **Rótulos:** cifras, fechas y nombres aparecen con una barra y un fundido.
   - **Sonido:** whoosh en los cortes, un golpe grave en las revelaciones y la música baja sola cuando habla la voz.
@@ -195,13 +182,27 @@ material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐ 
 
   Claude marca las palabras clave, los datos, las revelaciones y el gancho en una sola pasada (unos segundos). Esa pasada se guarda en caché, así que cambiar colores o volúmenes no vuelve a llamarlo. Todo se hace con ffmpeg y libass, sin Remotion.
 
+  Los textos que escribe Claude (rótulos y gancho) salen siempre en el idioma de la narración.
+
   Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/whoosh.(wav|mp3)` y `golpe.(wav|mp3)`. Si no los hay, se generan solos.
+- **Edición intensa.** Es el estilo para redes, lleno de efectos. Usa lo mismo que el editorial, pero con más densidad (más palabras clave, rótulos y momentos, y cortes en todo el video), y añade:
+  - **Subtítulos en mayúsculas:** la palabra que suena crece.
+  - **Impacto en las revelaciones:** la palabra clave aparece gigante en el centro, con temblor de cámara y desfase de color.
+  - **Flash** en los cambios de imagen.
+  - **Barra de progreso** arriba.
+  - **Franjas de cine** en las citas.
+  - **Más sonido:** un "pop" en los rótulos y una subida de tensión antes de cada revelación.
+
+  Impacto, flash y barra de progreso se activan por separado. Al haber más cortes, el montaje tarda más.
 - **Miniatura.** Es el último paso, aunque se puede abrir en cualquier momento; si ya tienes la miniatura, súbela desde el principio. Claude propone de 1 a 5 conceptos, cada uno con el texto de la miniatura y el prompt listo para Flow. Si quieres poner el texto tú, también da la versión sin texto, para Canva.
 
   Para proponerlos se basa en el guion, el estilo de Escenas, hasta 4 imágenes del proyecto y, si la subes, una **miniatura de referencia**, de la que copia el estilo y no el contenido. También indica qué imagen de escena conviene usar como referencia en Flow. Luego generas la miniatura, la subes, y queda como portada en Mis videos y lista para descargar. No usa APIs de imagen, solo Claude CLI (~1 min).
 - **Voz clonada (opcional).** En el paso Voz puedes elegir "Voz clonada" en vez de las voces de Microsoft. La genera un servidor [Clonar-voz](https://github.com/jceronch1/Clonar-voz) (Qwen3-TTS con llama.cpp, en CPU o GPU) que puede estar en esta máquina o en otra, por ejemplo un PC con GPU. Se conecta con `estudio_voz_clonada_url` en `config.toml`. Desde el mismo panel grabas o subes 10–15 s de voz y queda en la biblioteca.
 
   El guion se pide por bloques de unas pocas frases que se guardan en caché. Por eso cambiar los planos o la velocidad, o reintentar tras un fallo, no vuelve a sintetizar lo que ya existe. Los tiempos de los subtítulos se reparten dentro de cada bloque por número de caracteres, con un desfase de ±0,5 s. En CPU tarda de 5 a 12 veces lo que dura el audio (medido en un i3 de 4 hilos); con GPU es casi al momento. Úsala solo con tu voz o con voces que tengan permiso.
+- **Mi audio (narración propia).** En el paso Voz, la opción "Mi audio" sirve para subir una narración ya grabada: tu voz o una generada aparte con Clonar-voz (WAV, MP3, M4A, OGG, FLAC…). Whisper saca el tiempo de cada palabra para los subtítulos y los planos.
+
+  Si el guion del proyecto coincide con lo que se oye (al menos un 60 %), los subtítulos usan el texto del guion con los tiempos del audio; si no hay guion, usan la transcripción. Tarda unos 8 s por minuto de audio en CPU (14,5 min en menos de 2 min).
 - **Asistente** (la burbuja de abajo a la derecha): es un chat que responde con tu cuenta de Claude. Antes de cada pregunta recibe el estado del momento (proyecto abierto, etapas, errores, registro) y puede leer el código para explicar un error. No puede leer `config.toml` ni credenciales. Está en `app/services/estudio/asistente.py`.
 - **Mis videos**: cada tarjeta tiene portada y las acciones Ver, Descargar, Editar, Duplicar, Renombrar y Borrar. Duplicar copia los ajustes y los recursos, pero no lo generado.
 
@@ -354,9 +355,9 @@ re-desplegar el stack.
 
 ## Licencia
 
-El backend ([MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo)) mantiene su licencia original MIT.  
-La interfaz (`mpt-ui`) desarrollada por **SaraviaMtech** — uso libre con atribución.
+© Saraviamtech. Todos los derechos reservados sobre el Estudio, las interfaces y la marca.
+Incluye componentes de código abierto bajo licencia MIT; sus avisos están en `MoneyPrinterTurbo/LICENSE`.
 
 ---
 
-*Desarrollado por [SaraviaMtech](https://github.com/juanelot)*
+*Desarrollado por [Saraviamtech](https://github.com/juanelot)*
