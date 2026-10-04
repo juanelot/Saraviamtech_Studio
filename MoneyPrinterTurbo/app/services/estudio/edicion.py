@@ -20,6 +20,12 @@ numero de caracteres.
 
 Las opciones NO estan en render.DEFECTOS (moverian la firma de todos los
 proyectos): se leen con .get y valores por defecto de OPCIONES.
+
+Estilo INTENSO (edicion="intenso"): la misma maquinaria con mas densidad (marcas,
+rotulos, momentos y subcortes en todo el video) y efectos propios: palabra que
+suena mas grande, palabra clave GIGANTE con temblor y desfase de color en las
+revelaciones, flash en los cambios de plano, barra de progreso, franjas de cine en
+las citas y mas sonido (pop en rotulos, subida antes de cada revelacion).
 """
 import hashlib
 import json
@@ -36,10 +42,10 @@ from app.services import claude_cli
 from app.services.estudio import acabado, almacen, medios
 from app.utils import utils
 
-VERSION = "2"   # v2: citas, pausas y pasado
+VERSION = "3"   # v2: citas, pausas y pasado; v3: textos en el idioma de las lineas
 VERSION_SFX = "2"   # cambiarla regenera los efectos generados
 OPCIONES = {
-    "edicion": "clasico",        # clasico | editorial
+    "edicion": "clasico",        # clasico | editorial | intenso
     "ed_palabras": True,
     "ed_rotulos": True,
     "ed_sonido": True,
@@ -55,20 +61,30 @@ OPCIONES = {
     "ed_look": "natural",         # natural | calido | cine | frio
     "ed_gancho": True,
     "gancho_texto": "",           # vacio = el que propone Claude
-    # momentos clave (como mucho uno cada ESPACIO_MOMENTOS)
+    # momentos clave (como mucho uno cada perfil["espacio_momentos"])
     "ed_momentos": True,
     "ed_destello": True,          # fogonazo breve en las revelaciones
     "ed_cita": True,              # frase potente grande sobre imagen oscurecida
     "ed_pausa": True,             # congelado + desaturado 1 s tras un remate
     "ed_pasado": True,            # blanco y negro calido en tramos de otra epoca
+    # solo estilo intenso
+    "ed_impacto": True,           # palabra gigante + temblor + desfase de color en revelaciones
+    "ed_flash": True,             # flash blanco en los cambios de plano
+    "ed_progreso": True,          # barra de progreso arriba
 }
-ESPACIO_MOMENTOS = 20.0
+# Lo que cambia entre estilos (el resto de la maquinaria es comun).
+PERFILES = {
+    "editorial": {"espacio_momentos": 20.0, "espacio_rotulos": 9.0, "ritmo_hasta": 30.0,
+                  "ritmo_pieza": 3.0, "ritmo_pieza_resto": None, "espacio_whoosh": 2.2, "max_citas": 2},
+    "intenso": {"espacio_momentos": 9.0, "espacio_rotulos": 5.0, "ritmo_hasta": 30.0,
+                "ritmo_pieza": 2.2, "ritmo_pieza_resto": 3.2, "espacio_whoosh": 0.9, "max_citas": 3},
+}
+ESPACIO_FLASH = 3.5
+DUR_TEMBLOR = 0.4
 DUR_PAUSA = 1.1
 # Blanco y negro con un toque sepia suave.
 FILTRO_PASADO = "hue=s=0.08,colorbalance=rs=0.08:gs=0.03:bs=-0.07:rm=0.05:bm=-0.05"
 FILTRO_PAUSA = "hue=s=0.2,eq=brightness=-0.03:contrast=1.05"
-RITMO_HASTA_S = 30.0   # tramo inicial con cortes mas rapidos
-RITMO_PIEZA_S = 3.0
 PIEZA_MIN_S = 1.2
 ENCUADRE_ALT = 1.12    # encuadre mas cerrado de los subcortes de ritmo
 ENCUADRE_REVELACION = 1.16
@@ -83,16 +99,24 @@ LOOKS = {
 }
 TANDA = 220           # lineas de subtitulo por llamada a Claude
 SR = 44100            # pista de efectos
-ESPACIO_ROTULOS = 9.0  # segundos minimos entre rotulos
-ESPACIO_WHOOSH = 2.2
 
 
 def opciones(p):
-    return {k: p.get(k, v) for k, v in OPCIONES.items()}
+    o = {k: p.get(k, v) for k, v in OPCIONES.items()}
+    o["perfil"] = PERFILES.get(o["edicion"], PERFILES["editorial"])
+    return o
 
 
 def activa(p):
-    return p.get("edicion", "clasico") == "editorial"
+    return p.get("edicion", "clasico") in PERFILES
+
+
+def intenso(opts):
+    return opts["edicion"] == "intenso"
+
+
+def nombre(p):
+    return "edicion intensa" if p.get("edicion") == "intenso" else "edicion editorial"
 
 
 # ------------------------------------------------------------------ texto
@@ -172,46 +196,65 @@ def _trozos(filas, maximo):
 
 # ------------------------------------------------------------------ marcas (Claude)
 
-PROMPT = """Eres editor de video documental. Vas a marcar, con criterio SOBRIO, donde
-reforzar visualmente esta narracion. Idioma de la narracion: el de las lineas.
+PROMPT = """Eres editor de video {tipo}. Vas a marcar, con criterio {criterio}, donde
+reforzar visualmente esta narracion.
+
+IDIOMA: {idioma}. TODO el texto que escribas tu ("titulo", "detalle", "gancho") va en
+EL MISMO IDIOMA QUE LAS LINEAS, aunque estas instrucciones esten en espanol. Nunca
+traduzcas al espanol si las lineas no estan en espanol.
 
 LINEAS (indice [minuto:segundo] texto):
 {lineas}
 
-Devuelve SOLO JSON:
-{{"resaltar": [{{"i": 3, "texto": "monopolio"}}],
-  "rotulos": [{{"i": 5, "titulo": "1870", "detalle": "Nace la Standard Oil"}}],
+Devuelve SOLO JSON (los textos de ejemplo son marcadores, no los copies):
+{{"resaltar": [{{"i": 3, "texto": "<palabra exacta de la linea 3>"}}],
+  "rotulos": [{{"i": 5, "titulo": "<dato>", "detalle": "<contexto breve>"}}],
   "revelaciones": [12, 40],
   "citas": [27],
   "pausas": [33],
   "pasado": [{{"desde": 4, "hasta": 9}}],
-  "gancho": "Nadie te conto esto"}}
+  "gancho": "<frase corta>"}}
 
 REGLAS
 - resaltar: como mucho UNA palabra (o nombre de 2-3 palabras) por linea, y solo en
-  la mitad de las lineas aprox. La que carga el sentido: cifra, nombre propio,
+  {cuantas_resaltar}. La que carga el sentido: cifra, nombre propio,
   concepto fuerte. Copiala EXACTA como aparece en la linea.
 - rotulos: solo datos concretos que conviene ver escritos: fechas, cifras, nombres de
   personas, empresas o lugares (la primera vez que salen). "titulo" de 1-4 palabras
-  con el dato; "detalle" de 0-6 palabras de contexto. Como mucho uno cada 20 segundos.
+  con el dato; "detalle" de 0-6 palabras de contexto. Como mucho uno cada {cada_rotulo} segundos.
 - revelaciones: indices de las lineas con un giro, dato sorprendente o momento clave.
-  Uno cada 30-45 segundos como mucho.
-- citas: 1 o 2 indices (en todo el video) de la frase MAS potente y citable, la que
+  Uno cada {cada_revelacion} segundos como mucho.
+- citas: {cuantas_citas} indices (en todo el video) de la frase MAS potente y citable, la que
   resume el mensaje. Maximo 14 palabras. Se mostrara grande en pantalla.
 - pausas: lineas que son un remate o conclusion fuerte, donde una pausa dramatica de
-  1 segundo al terminar la frase tiene sentido. Una por minuto como mucho.
+  1 segundo al terminar la frase tiene sentido. {cada_pausa}.
 - pasado: tramos de lineas que narran OTRA EPOCA distinta del presente del relato
   (flashback, "en 1870...", "hace siglos..."). Si todo el video es historico, deja [].
 - gancho: {regla_gancho}
-- No inventes datos que no esten en las lineas."""
+- No inventes datos que no esten en las lineas.
+- Recuerda: titulo, detalle y gancho en el idioma de las lineas ({idioma})."""
+
+DENSIDAD = {
+    "editorial": {"tipo": "documental", "criterio": "SOBRIO", "cuantas_resaltar": "la mitad de las lineas aprox",
+                  "cada_rotulo": "20", "cada_revelacion": "30-45", "cuantas_citas": "1 o 2",
+                  "cada_pausa": "Una por minuto como mucho"},
+    "intenso": {"tipo": "de alto impacto para redes (mucho ritmo y efectos)", "criterio": "GENEROSO",
+                "cuantas_resaltar": "casi todas las lineas", "cada_rotulo": "8-10",
+                "cada_revelacion": "15-20", "cuantas_citas": "2 o 3",
+                "cada_pausa": "Una cada 40 segundos como mucho"},
+}
 
 
 def _pedir_marcas(lineas, desde, opts, primera):
     texto = "\n".join(f"{desde + i} [{_t(a)}] {t}" for i, (a, _b, t) in enumerate(lineas))
+    idioma = opts.get("idioma") or ""
     prompt = PROMPT.format(
         lineas=texto,
-        regla_gancho=("frase de 2-5 palabras para los primeros 2 segundos, en el idioma de la "
-                      "narracion, que despierte curiosidad sin mentir." if primera else 'deja "".'))
+        idioma=(f"el de las lineas (el guion se configuro en «{idioma}»; si las lineas estan en otro "
+                "idioma, mandan las lineas)" if idioma else "el de las lineas"),
+        **DENSIDAD.get(opts["edicion"], DENSIDAD["editorial"]),
+        regla_gancho=("frase de 2-5 palabras para los primeros 2 segundos, en el idioma de las "
+                      "lineas, que despierte curiosidad sin mentir." if primera else 'deja "".'))
     salida = claude_cli.ejecutar(prompt, modelo=opts["ed_modelo"], esfuerzo=opts["ed_esfuerzo"],
                                  tiempo_max_s=min(1800, 180 + 2 * len(lineas)))
     i, j = salida.find("{"), salida.rfind("}")
@@ -221,7 +264,7 @@ def _pedir_marcas(lineas, desde, opts, primera):
 
 def marcas(carpeta_render, lineas, opts, avisar):
     """Marcas cacheadas por contenido de las lineas + version + modelo."""
-    clave = hashlib.sha256(json.dumps([VERSION, opts["ed_modelo"], opts["ed_esfuerzo"],
+    clave = hashlib.sha256(json.dumps([VERSION, opts["ed_modelo"], opts["ed_esfuerzo"], opts["edicion"],
                                        [t for _a, _b, t in lineas]], ensure_ascii=False)
                            .encode("utf-8")).hexdigest()[:20]
     ruta = os.path.join(carpeta_render, "marcas.json")
@@ -278,6 +321,8 @@ def _resaltados(marcas_, por_linea):
 def _eventos_palabras(por_linea, claves, opts, prefijo):
     resalte = _color(opts["color_resalte"])
     maximo = max(2, min(7, int(opts["palabras_max"] or 4)))
+    fuerte = intenso(opts)  # mayusculas y la palabra que suena mas grande
+    texto = (lambda x: acabado.limpio(x).upper()) if fuerte else acabado.limpio
     eventos, cajas = [], []
     for i, filas in enumerate(por_linea):
         grupos = _trozos(filas, maximo)
@@ -288,7 +333,7 @@ def _eventos_palabras(por_linea, claves, opts, prefijo):
                 siguiente = por_linea[i + 1][0][0]
             fin_grupo = min(fin_grupo + 0.3, siguiente) if siguiente else fin_grupo + 0.3
             cajas.append((filas[idx[0]][0], fin_grupo,
-                          f"{prefijo}{' '.join(acabado.limpio(filas[kk][2]) for kk in idx)}"))
+                          f"{prefijo}{' '.join(texto(filas[kk][2]) for kk in idx)}"))
             for pos, k in enumerate(idx):
                 ini = filas[k][0]
                 fin = filas[idx[pos + 1]][0] if pos + 1 < len(idx) else fin_grupo
@@ -296,9 +341,11 @@ def _eventos_palabras(por_linea, claves, opts, prefijo):
                     continue
                 trozos = []
                 for kk in idx:
-                    t = acabado.limpio(filas[kk][2])
+                    t = texto(filas[kk][2])
                     color = f"\\1c{resalte}" if kk in claves.get(i, ()) else ""
                     alfa = "\\1a&H00&" if kk == k else "\\1a&H45&"
+                    if fuerte and kk == k:
+                        alfa += "\\fscx112\\fscy112"
                     trozos.append(f"{{{alfa}{color}}}{t}{{\\r}}")
                 eventos.append((ini, fin, f"{prefijo}{' '.join(trozos)}"))
     return eventos, cajas
@@ -317,16 +364,12 @@ def _estilo_derivado(estilo, nombre, **cambios):
     return "Style: " + ",".join(valores)
 
 
-def _eventos_rotulos(lineas, marcas_, opts, p, w, h):
-    tam = int(p["tam_fuente"])
-    t1, t2 = int(tam * 0.9), int(tam * 0.55)
-    arriba = p["sub_posicion"] in ("bottom",) or (p["sub_posicion"] == "custom" and float(p["sub_posicion_pct"]) > 50)
-    x = int(w * 0.07)
-    y = int(h * 0.09) if arriba else int(h * 0.70)
-    alto = int(t1 * 1.15 + t2 * 1.3)
-    barra = _color(opts["color_resalte"])
-    salida, ultimo = [], -1e9
-    rotulos = []
+DUR_ROTULO = 3.6
+
+
+def rotulos_elegidos(lineas, marcas_, opts):
+    """[(inicio, titulo, detalle)] respetando la separacion minima del estilo."""
+    rotulos, salida, ultimo = [], [], -1e9
     for r in marcas_.get("rotulos") or []:
         try:
             i = int(r.get("i"))
@@ -335,17 +378,33 @@ def _eventos_rotulos(lineas, marcas_, opts, p, w, h):
         if 0 <= i < len(lineas) and str(r.get("titulo", "")).strip():
             rotulos.append((lineas[i][0], str(r["titulo"]).strip()[:40], str(r.get("detalle") or "").strip()[:60]))
     for ini, titulo, detalle in sorted(rotulos):
-        if ini - ultimo < ESPACIO_ROTULOS:
+        if ini - ultimo < opts["perfil"]["espacio_rotulos"]:
             continue
-        fin = ini + 3.6
-        ultimo = fin
+        ultimo = ini + DUR_ROTULO
+        salida.append((ini, titulo, detalle))
+    return salida
+
+
+def _eventos_rotulos(lineas, marcas_, opts, p, w, h):
+    tam = int(p["tam_fuente"])
+    t1, t2 = int(tam * 0.9), int(tam * 0.55)
+    arriba = p["sub_posicion"] in ("bottom",) or (p["sub_posicion"] == "custom" and float(p["sub_posicion_pct"]) > 50)
+    x = int(w * 0.07)
+    y = int(h * 0.09) if arriba else int(h * 0.70)
+    alto = int(t1 * 1.15 + t2 * 1.3)
+    barra = _color(opts["color_resalte"])
+    # Intenso: la barra crece y el texto entra desde mas lejos.
+    crece, desde = ("\\fscy0\\t(0,220,\\fscy100)", x - 40) if intenso(opts) else ("", x + 4)
+    salida = []
+    for ini, titulo, detalle in rotulos_elegidos(lineas, marcas_, opts):
+        fin = ini + DUR_ROTULO
         fad = "\\fad(220,300)"
         salida.append((1, ini, fin, "Rotulo",
-                       f"{{\\an7\\pos({x},{y}){fad}\\p1\\bord0\\shad0\\1c{barra}}}m 0 0 l 7 0 7 {alto} 0 {alto}{{\\p0}}"))
-        mov = f"\\move({x + 4},{y},{x + 22},{y},0,260)"
+                       f"{{\\an7\\pos({x},{y}){fad}{crece}\\p1\\bord0\\shad0\\1c{barra}}}m 0 0 l 7 0 7 {alto} 0 {alto}{{\\p0}}"))
+        mov = f"\\move({desde},{y},{x + 22},{y},0,260)"
         salida.append((2, ini, fin, "Rotulo", f"{{\\an7{mov}{fad}}}{acabado.limpio(titulo)}"))
         if detalle:
-            mov2 = f"\\move({x + 4},{y + int(t1 * 1.15)},{x + 22},{y + int(t1 * 1.15)},0,260)"
+            mov2 = f"\\move({desde},{y + int(t1 * 1.15)},{x + 22},{y + int(t1 * 1.15)},0,260)"
             salida.append((2, ini + 0.12, fin, "RotuloDetalle", f"{{\\an7{mov2}{fad}}}{acabado.limpio(detalle)}"))
     estilos = [
         f"Style: Rotulo,{acabado.familia_fuente(p['fuente'])},{t1},&H00FFFFFF,&H000000FF,&H00101010,"
@@ -370,20 +429,60 @@ def _eventos_citas(citas, opts, p, w, h):
     fuente = acabado.familia_fuente(p["fuente"])
     estilos = [
         f"Style: Velo,{fuente},10,&H55000000,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
+        f"Style: Franja,{fuente},10,&H00000000,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
         f"Style: Cita,{fuente},{int(tam * (1.15 if vertical else 1.3))},&H00FFFFFF,&H000000FF,&H00101010,"
         f"&H96000000,-1,0,0,0,100,100,0,0,1,2,2,5,{int(w * 0.12)},{int(w * 0.12)},0,1",
     ]
     resalte = _color(opts["color_resalte"])
     eventos = []
+    franja = int(h * 0.09)
     for a, b, texto in citas:
         eventos.append((4, a, b, "Velo", f"{{\\an7\\pos(0,0)\\fad(350,350)\\p1}}m 0 0 l {w} 0 {w} {h} 0 {h}{{\\p0}}"))
+        if intenso(opts):  # franjas de cine que entran por arriba y por abajo
+            for y0, y1 in ((-franja, 0), (h, h - franja)):
+                eventos.append((4, a, b, "Franja", f"{{\\an7\\move(0,{y0},0,{y1},0,350)\\fad(0,300)\\p1}}"
+                                                  f"m 0 0 l {w} 0 {w} {franja} 0 {franja}{{\\p0}}"))
         eventos.append((5, a + 0.15, b, "Cita",
                         f"{{\\fad(400,350)\\fscx96\\fscy96\\t(0,600,\\fscx100\\fscy100)}}"
                         f"{{\\1c{resalte}}}“{{\\r}}{acabado.limpio(texto)}{{\\1c{resalte}}}”"))
     return eventos, estilos
 
 
-def escribir_ass(destino, lineas, por_linea, marcas_, opts, p, w, h, mom=None):
+def _eventos_intenso(mom, cortes, duracion, opts, p, w, h):
+    """Capas propias del estilo intenso: flash en los cambios de plano, palabra
+    clave gigante en las revelaciones y barra de progreso."""
+    fuente = acabado.familia_fuente(p["fuente"])
+    tam = int(p["tam_fuente"])
+    resalte = _color(opts["color_resalte"])
+    estilos = [
+        f"Style: Flash,{fuente},10,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
+        f"Style: Impacto,{fuente},{int(tam * (2.0 if h > w else 2.4))},&H00FFFFFF,&H000000FF,&H00000000,"
+        f"&H96000000,-1,0,0,0,100,100,2,0,1,5,4,5,{int(w * 0.06)},{int(w * 0.06)},0,1",
+        f"Style: Progreso,{fuente},10,{resalte},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
+    ]
+    eventos = []
+    if opts["ed_flash"]:
+        ultimo = -1e9
+        for t in cortes:
+            if t - ultimo >= ESPACIO_FLASH and t > 0.5:
+                ultimo = t
+                eventos.append((6, t, t + 0.22, "Flash",
+                                f"{{\\an7\\pos(0,0)\\alpha&H70&\\t(0,220,\\alpha&HFF&)\\p1}}"
+                                f"m 0 0 l {w} 0 {w} {h} 0 {h}{{\\p0}}"))
+    for t, palabra in mom.get("impactos") or []:
+        if palabra:
+            eventos.append((7, t, t + 1.0, "Impacto",
+                            f"{{\\an5\\pos({w // 2},{int(h * 0.42)})\\1c{resalte}\\fscx150\\fscy150"
+                            f"\\t(0,160,\\fscx100\\fscy100)\\fad(0,250)}}{acabado.limpio(palabra.upper())}"))
+    if opts["ed_progreso"] and duracion > 0:
+        alto = max(6, int(h * 0.006))
+        eventos.append((8, 0.0, duracion, "Progreso",
+                        f"{{\\an7\\pos(0,0)\\fscx0\\t(0,{int(duracion * 1000)},\\fscx100)\\p1}}"
+                        f"m 0 0 l {w} 0 {w} {alto} 0 {alto}{{\\p0}}"))
+    return eventos, estilos
+
+
+def escribir_ass(destino, lineas, por_linea, marcas_, opts, p, w, h, mom=None, cortes=(), duracion=0.0):
     estilo, prefijo = acabado.estilo_base(p, w, h)
     estilos, eventos = [estilo], []
     if p.get("subtitulos", True):
@@ -424,6 +523,10 @@ def escribir_ass(destino, lineas, por_linea, marcas_, opts, p, w, h, mom=None):
         ev, st = _eventos_citas(citas, opts, p, w, h)
         eventos += ev
         estilos += st
+    if intenso(opts):
+        ev, st = _eventos_intenso(mom or {}, cortes, duracion, opts, p, w, h)
+        eventos += ev
+        estilos += st
     filas = [f"Dialogue: {capa},{acabado._t_ass(a)},{acabado._t_ass(b)},{est},,0,0,0,,{txt}"
              for capa, a, b, est, txt in sorted(eventos, key=lambda e: (e[1], e[0]))]
     with open(destino, "w", encoding="utf-8") as f:
@@ -443,7 +546,16 @@ SONIDOS = {
               "-filter_complex", "[0:a]afade=t=out:st=0.05:d=1.75:curve=exp,volume=0.9[s];"
                                  "[1:a]lowpass=f=900,afade=t=out:d=0.09[n];"
                                  "[s][n]amix=inputs=2:normalize=0,volume=0.75"],
+    # intenso: chasquido corto (rotulos) y subida de tension que acaba en la revelacion
+    "pop": ["-f", "lavfi", "-i", "sine=f=1250:d=0.09:r=44100",
+            "-af", "afade=t=out:d=0.09:curve=exp,volume=0.45"],
+    "subida": ["-f", "lavfi", "-i", "aevalsrc=0.35*sin(2*PI*(110*t+260*t*t)):d=1.1:s=44100",
+               "-f", "lavfi", "-i", "anoisesrc=d=1.1:c=white:a=0.5:r=44100",
+               "-filter_complex", "[1:a]highpass=f=1200,lowpass=f=7000[n];"
+                                  "[0:a][n]amix=inputs=2:normalize=0,"
+                                  "afade=t=in:d=1.0:curve=exp,afade=t=out:st=1.02:d=0.08,volume=0.6"],
 }
+DUR_SUBIDA = 1.1
 
 
 def _sonido(nombre):
@@ -515,14 +627,28 @@ def _indices(valores, n):
 def momentos(lineas, marcas_, opts):
     """Momentos especiales elegidos con separacion minima (prioridad: cita >
     pausa > destello) y tramos de "pasado".
-    {"citas": [(ini, fin, texto)], "pausas": [t], "destellos": [t], "pasado": [(ini, fin)]}"""
-    elegidos = {"citas": [], "pausas": [], "destellos": [], "pasado": []}
-    if not opts["ed_momentos"] or not lineas:
+    {"citas": [(ini, fin, texto)], "pausas": [t], "destellos": [t], "pasado": [(ini, fin)],
+     "impactos": [(t, palabra)]}  (impactos solo en el estilo intenso, aparte de los momentos)"""
+    elegidos = {"citas": [], "pausas": [], "destellos": [], "pasado": [], "impactos": []}
+    if not lineas:
         return elegidos
     n = len(lineas)
+    if intenso(opts) and opts["ed_impacto"]:
+        clave = {}
+        for m in marcas_.get("resaltar") or []:
+            if isinstance(m, dict) and str(m.get("i", "")).lstrip("-").isdigit():
+                clave.setdefault(int(m["i"]), str(m.get("texto") or "").strip()[:28])
+        ultimo = -1e9
+        for i in sorted(set(_indices(marcas_.get("revelaciones"), n))):
+            t = lineas[i][0]
+            if t - ultimo >= 6.0:
+                ultimo = t
+                elegidos["impactos"].append((t, clave.get(i, "")))
+    if not opts["ed_momentos"]:
+        return elegidos
     candidatos = []
     if opts["ed_cita"]:
-        for i in _indices(marcas_.get("citas"), n)[:2]:
+        for i in _indices(marcas_.get("citas"), n)[:opts["perfil"]["max_citas"]]:
             a, b, t = lineas[i]
             if len(t) <= 110:
                 candidatos.append((0, a, "citas", (a, a + min(5.0, max(2.4, b - a + 0.5)), t)))
@@ -534,7 +660,7 @@ def momentos(lineas, marcas_, opts):
             candidatos.append((2, lineas[i][0], "destellos", lineas[i][0]))
     tiempos = []
     for _prio, t, tipo, valor in sorted(candidatos, key=lambda c: (c[0], c[1])):
-        if all(abs(t - u) >= ESPACIO_MOMENTOS for u in tiempos):
+        if all(abs(t - u) >= opts["perfil"]["espacio_momentos"] for u in tiempos):
             tiempos.append(t)
             elegidos[tipo].append(valor)
     if opts["ed_pasado"]:
@@ -546,13 +672,23 @@ def momentos(lineas, marcas_, opts):
                 elegidos["pasado"].append((lineas[ij[0]][0], lineas[ij[1]][1]))
     for k in ("citas", "pausas", "destellos"):
         elegidos[k].sort(key=lambda v: v[0] if isinstance(v, tuple) else v)
+    # La cita ya ocupa el centro de la pantalla: sin palabra gigante ni temblor encima.
+    elegidos["impactos"] = [(t, w) for t, w in elegidos["impactos"]
+                            if not any(a - 1.0 <= t <= b for a, b, _x in elegidos["citas"])]
     return elegidos
 
 
-def filtro_video(opts, mom):
+def filtro_video(opts, mom, w=0, h=0):
     """Filtros sobre el video montado, ANTES de los subtitulos: tono de color,
-    destellos (fogonazo de ~0,3 s) y desenfoque detras de las citas."""
+    destellos (fogonazo de ~0,3 s) y desenfoque detras de las citas. Intenso:
+    temblor de camara y desfase de color en los impactos."""
     partes = []
+    if mom.get("impactos") and w and h:
+        cuando = "+".join(f"between(t,{t:.3f},{t + DUR_TEMBLOR:.3f})" for t, _p in mom["impactos"])
+        m = max(8, int(min(w, h) * 0.012))  # margen: todo el video se recorta m px y vuelve a su tamano
+        partes.append(f"crop=w={w - 2 * m}:h={h - 2 * m}:x='{m}+{m - 1}*sin(t*97)*({cuando})':"
+                      f"y='{m}+{m - 1}*cos(t*71)*({cuando})',scale={w}:{h},setsar=1")
+        partes.append(f"chromashift=cbh=-{m}:crh={m}:enable='{cuando}'")
     if opts["ed_color"]:
         partes.append(LOOKS.get(opts["ed_look"], LOOKS["natural"]))
         partes.append("vignette=angle=PI/5")
@@ -574,6 +710,7 @@ def lineas_y_marcas(ctx, voz, p):
     """(lineas del SRT, marcas de Claude). Las marcas se cachean: llamarlo dos
     veces en el mismo render no repite la llamada."""
     opts = opciones(p)
+    opts["idioma"] = str(ctx.params_de("guion").get("idioma") or "")
     srt = ctx.dir(voz["srt"], crear=False)
     lineas = acabado.lineas_srt(srt) if os.path.isfile(srt) else []
     vacio = {"resaltar": [], "rotulos": [], "revelaciones": [], "gancho": ""}
@@ -584,8 +721,9 @@ def lineas_y_marcas(ctx, voz, p):
 
 def subcortes(planos, lineas, marcas_, opts):
     """Parte los planos en PIEZAS (mismo recurso, otro encuadre o efecto):
-      - ritmo: en los primeros RITMO_HASTA_S, planos largos en piezas de ~3 s
-        alternando encuadre normal y cerrado;
+      - ritmo: en los primeros segundos (perfil "ritmo_hasta"), planos largos en piezas
+        de ~3 s alternando encuadre normal y cerrado; el estilo intenso sigue cortando
+        (piezas de "ritmo_pieza_resto") el resto del video;
       - zoom: en cada revelacion, lo que sigue entra mas cerca (punch-in);
       - pausa: al terminar un remate, 1 s congelado y desaturado;
       - pasado: los planos cuyo centro cae en un tramo de otra epoca van en B/N.
@@ -600,12 +738,15 @@ def subcortes(planos, lineas, marcas_, opts):
         centro = (a + b) / 2
         pasado = any(ra <= centro <= rb for ra, rb in mom["pasado"])
         cortes = [(a, 1.0, None)]
-        if opts["ed_ritmo"] and a < RITMO_HASTA_S and b - a > RITMO_PIEZA_S + 0.4:
-            n = int(-(-(b - a) // RITMO_PIEZA_S))
+        pf = opts["perfil"]
+        pieza = pf["ritmo_pieza"] if a < pf["ritmo_hasta"] else pf["ritmo_pieza_resto"]
+        if opts["ed_ritmo"] and pieza and b - a > pieza + 0.4:
+            n = int(-(-(b - a) // pieza))
             paso = (b - a) / n
-            # Solo se corta dentro del tramo inicial; la ultima pieza sigue hasta el final del plano.
+            # Editorial: solo se corta dentro del tramo inicial; la ultima pieza sigue hasta el final del plano.
+            hasta = float("inf") if pf["ritmo_pieza_resto"] else pf["ritmo_hasta"]
             cortes = [(a + k * paso, 1.0 if k % 2 == 0 else ENCUADRE_ALT, None) for k in range(n)
-                      if k == 0 or a + k * paso < RITMO_HASTA_S]
+                      if k == 0 or a + k * paso < hasta]
         for t in revel:
             if a + PIEZA_MIN_S <= t <= b - PIEZA_MIN_S:
                 previo = max(c for c in cortes if c[0] <= t)
@@ -638,35 +779,41 @@ def preparar(ctx, voz, planos, p, w, h, duracion):
     lineas, marcas_ = lineas_y_marcas(ctx, voz, p)
     por_linea = palabras_por_linea(lineas, ctx.dir("voz", "palabras.json", crear=False))
     mom = momentos(lineas, marcas_, opts)
+    fuerte = intenso(opts)
+    cambios = [float(b["inicio"]) for a, b in zip(planos, planos[1:]) if b.get("recurso") != a.get("recurso")]
 
     ass = None
     if ((p.get("subtitulos", True) and lineas) or opts["ed_rotulos"] or texto_gancho(marcas_, opts)
-            or mom["citas"]):
+            or mom["citas"] or fuerte):
         ass = os.path.join(carpeta, "subtitulos.ass")
-        escribir_ass(ass, lineas, por_linea, marcas_, opts, p, w, h, mom)
+        escribir_ass(ass, lineas, por_linea, marcas_, opts, p, w, h, mom, cambios, duracion)
 
     sfx = None
     if opts["ed_sonido"]:
         eventos, ultimo = [], -1e9
-        for a, b in zip(planos, planos[1:]):
-            corte = float(b["inicio"])
-            if b.get("recurso") != a.get("recurso") and corte - ultimo >= ESPACIO_WHOOSH:
+        for corte in cambios:
+            if corte - ultimo >= opts["perfil"]["espacio_whoosh"]:
                 eventos.append((corte - 0.4, "whoosh"))
                 ultimo = corte
         for i in marcas_.get("revelaciones") or []:
             if isinstance(i, int) and 0 <= i < len(lineas):
                 eventos.append((lineas[i][0] - 0.05, "golpe"))
+        if fuerte:
+            if opts["ed_rotulos"]:
+                eventos += [(t, "pop") for t, _ti, _de in rotulos_elegidos(lineas, marcas_, opts)]
+            eventos += [(t - DUR_SUBIDA, "subida") for t, _p in mom["impactos"] if t > DUR_SUBIDA + 0.2]
         if eventos:
             sfx = os.path.join(carpeta, "sfx.wav")
             pista_sfx(sfx, duracion, eventos)
 
     n_claves = sum(len(v) for v in _resaltados(marcas_, por_linea).values()) if lineas else 0
     gancho = texto_gancho(marcas_, opts)
-    resumen = (f"edicion editorial: {n_claves} palabras clave, {len(marcas_.get('rotulos') or [])} rotulos, "
+    resumen = (f"{nombre(p)}: {n_claves} palabras clave, {len(marcas_.get('rotulos') or [])} rotulos, "
                f"{len(marcas_.get('revelaciones') or [])} revelaciones"
                + (f", gancho «{gancho}»" if gancho else "")
                + (f"; momentos: {len(mom['citas'])} citas, {len(mom['pausas'])} pausas, "
                   f"{len(mom['destellos'])} destellos, {len(mom['pasado'])} tramos del pasado"
-                  if opts["ed_momentos"] else ""))
+                  if opts["ed_momentos"] else "")
+               + (f"; {len(mom['impactos'])} impactos" if fuerte else ""))
     return {"ass": ass, "sfx": sfx, "ducking": bool(opts["ed_sonido"]), "resumen": resumen,
-            "gancho": marcas_.get("gancho", ""), "color": filtro_video(opts, mom)}
+            "gancho": marcas_.get("gancho", ""), "color": filtro_video(opts, mom, w, h)}

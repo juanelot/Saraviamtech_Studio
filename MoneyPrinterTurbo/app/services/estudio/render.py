@@ -187,7 +187,7 @@ def ejecutar(ctx):
     # subcortes) y los planos se parten en piezas. Si no, una pieza por plano.
     piezas = [{**x, "encuadre": 1.0, "desde": 0.0, "pieza": 0, "efecto": None, "pasado": False} for x in planos]
     if editorial:
-        ctx.avisar("edicion editorial: marcas de Claude", 1)
+        ctx.avisar(f"{edicion.nombre(p)}: marcas de Claude", 1)
         lineas, marcas_ = edicion.lineas_y_marcas(ctx, voz, p)
         piezas = edicion.subcortes(planos, lineas, marcas_, edicion.opciones(p))
 
@@ -236,9 +236,9 @@ def ejecutar(ctx):
         logger.warning("este ffmpeg no trae libass: se usa el acabado clasico (lento)")
     resumen_edicion = None
     if edicion.activa(p) and not rapido:
-        logger.warning("la edicion editorial necesita el acabado rapido (ffmpeg con libass): se ignora")
+        logger.warning(f"la {edicion.nombre(p)} necesita el acabado rapido (ffmpeg con libass): se ignora")
     if editorial:
-        ctx.avisar("edicion editorial: preparando subtitulos, rotulos y sonido", 73)
+        ctx.avisar(f"{edicion.nombre(p)}: preparando subtitulos, rotulos y sonido", 73)
         ed = edicion.preparar(ctx, voz, planos, p, w, h, float(voz["duracion"]))
         resumen_edicion = ed["resumen"]
         ctx.avisar(ed["resumen"], 76)

@@ -23,7 +23,8 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
   const ancho = et.salida?.ancho || 0, alto = et.salida?.alto || 0;
   const vertical = ancho && alto ? alto > ancho * 1.05 : r.aspecto === "9:16";
   const cuadrado = ancho > 0 && Math.abs(ancho - alto) <= ancho * 0.05;
-  const editorial = r.edicion === "editorial";
+  const intenso = r.edicion === "intenso";
+  const editorial = r.edicion === "editorial" || intenso;
 
   async function subirMusica(f: File | undefined) {
     if (!f) return;
@@ -49,7 +50,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                 <p className="text-sm text-tinta-2">
                   {mmss(et.salida.duracion)} · {et.salida.ancho}×{et.salida.alto} · {et.salida.tam_mb} MB ·{" "}
                   {et.salida.clips_reutilizados} clips reutilizados
-                  {et.salida.edicion && <span className="block text-xs text-tinta-3">{et.salida.edicion.replace("edicion editorial: ", "Editorial: ")}</span>}
+                  {et.salida.edicion && <span className="block text-xs text-tinta-3">{et.salida.edicion.replace("edicion editorial: ", "Editorial: ").replace("edicion intensa: ", "Intenso: ")}</span>}
                 </p>
                 <a href={url.descargar(id)} className="boton boton-acento"><Download size={15} /> Descargar MP4</a>
               </div>
@@ -74,17 +75,31 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
       <div className="space-y-5">
         <Tarjeta titulo="Estilo de edicion">
           <div className="space-y-4">
-            <Segmentado valor={editorial ? "editorial" : "clasico"} onChange={s("edicion")}
-              opciones={[{ v: "clasico", t: "Clasico" }, { v: "editorial", t: "Editorial" }]} />
+            <Segmentado valor={intenso ? "intenso" : editorial ? "editorial" : "clasico"} onChange={s("edicion")}
+              opciones={[{ v: "clasico", t: "Clasico" }, { v: "editorial", t: "Editorial" }, { v: "intenso", t: "Intenso" }]} />
             <p className="text-xs text-tinta-3">
-              {editorial
+              {intenso
+                ? "Lleno de efectos y ritmo de redes: cortes en todo el video, palabra clave gigante con temblor en las revelaciones, flash en los cambios de plano, barra de progreso y mas sonido. El montaje tarda mas (mas clips)."
+                : editorial
                 ? "Efectos sobrios de documental que suben la retencion. Claude marca palabras clave, datos y momentos fuertes (unos segundos, una vez)."
                 : "Subtitulos por frase, sin efectos."}
             </p>
             {editorial && (
               <div className="space-y-3">
+                {intenso && (
+                  <>
+                    <Interruptor valor={r.ed_impacto !== false} onChange={s("ed_impacto")}
+                      titulo="Impacto en las revelaciones" detalle="La palabra clave aparece gigante en el centro, la imagen tiembla y se desfasa el color un instante." />
+                    <Interruptor valor={r.ed_flash !== false} onChange={s("ed_flash")}
+                      titulo="Flash en los cambios de plano" detalle="Destello blanco breve al cambiar de imagen (como mucho uno cada 3,5 s)." />
+                    <Interruptor valor={r.ed_progreso !== false} onChange={s("ed_progreso")}
+                      titulo="Barra de progreso" detalle="Linea fina arriba que avanza con el video, en el color de resalte." />
+                  </>
+                )}
                 <Interruptor valor={r.ed_palabras !== false} onChange={s("ed_palabras")}
-                  titulo="Subtitulos palabra por palabra" detalle="La palabra que suena se ilumina y la clave de cada frase va en color." />
+                  titulo="Subtitulos palabra por palabra" detalle={intenso
+                    ? "En mayusculas; la palabra que suena se ilumina y crece, y la clave de cada frase va en color."
+                    : "La palabra que suena se ilumina y la clave de cada frase va en color."} />
                 {r.ed_palabras !== false && (
                   <div className="grid grid-cols-2 gap-3 pl-7">
                     <Campo etiqueta="Palabras en pantalla">
@@ -107,7 +122,9 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                   </Campo>
                 )}
                 <Interruptor valor={r.ed_ritmo !== false} onChange={s("ed_ritmo")}
-                  titulo="Ritmo de entrada" detalle="En los primeros 30 s, cortes cada ~3 s alternando el encuadre de la misma imagen." />
+                  titulo={intenso ? "Ritmo" : "Ritmo de entrada"} detalle={intenso
+                    ? "Cortes cada ~2 s al principio y cada ~3 s el resto del video, alternando el encuadre de la misma imagen."
+                    : "En los primeros 30 s, cortes cada ~3 s alternando el encuadre de la misma imagen."} />
                 <Interruptor valor={r.ed_zoom !== false} onChange={s("ed_zoom")}
                   titulo="Zoom en las revelaciones" detalle="La imagen se acerca un poco justo en los momentos clave." />
                 <Interruptor valor={r.ed_color !== false} onChange={s("ed_color")}
@@ -127,7 +144,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                   </Campo>
                 )}
                 <Interruptor valor={r.ed_momentos !== false} onChange={s("ed_momentos")}
-                  titulo="Efectos en momentos clave" detalle="Solo donde Claude marque un momento fuerte, como mucho uno cada 20 s." />
+                  titulo="Efectos en momentos clave" detalle={`Solo donde Claude marque un momento fuerte, como mucho uno cada ${intenso ? 9 : 20} s.`} />
                 {r.ed_momentos !== false && (
                   <div className="space-y-2.5 pl-7">
                     <Interruptor valor={r.ed_cita !== false} onChange={s("ed_cita")}
@@ -141,7 +158,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                   </div>
                 )}
                 {r.acabado === "clasico" && (
-                  <p className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">El estilo editorial necesita el acabado Rapido (en Motor).</p>
+                  <p className="rounded-xl bg-aviso-suave p-3 text-sm text-aviso">El estilo {intenso ? "intenso" : "editorial"} necesita el acabado Rapido (en Motor).</p>
                 )}
               </div>
             )}

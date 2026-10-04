@@ -97,6 +97,13 @@ En pantalla los pasos son: Material, Guion, Voz, Escenas, Contenido, Ajuste, Vid
   Momentos clave (ed_momentos; max 1 cada 20 s, prioridad cita > pausa > destello):
   cita destacada, pausa dramatica (congelado 1 s), destello en revelaciones y B/N en
   tramos del "pasado" que marque Claude.
+- Edicion intensa (render.edicion="intenso", misma edicion.py con PERFILES["intenso"]):
+  mas densa (marcas, rotulos cada ~9 s, momentos cada 9 s, subcortes en todo el video)
+  y efectos propios: subtitulos en mayusculas con la palabra que suena mas grande,
+  palabra clave gigante + temblor + desfase de color en revelaciones (ed_impacto),
+  flash en cambios de plano (ed_flash), barra de progreso (ed_progreso), franjas de
+  cine en las citas, pop en rotulos y subida antes de cada revelacion. Los textos de
+  Claude (rotulos, gancho) van en el idioma de las lineas.
 - Miniatura (fuera del grafo, usable en cualquier momento): Claude propone conceptos con
   prompt para Flow (con o sin texto en la imagen) a partir del guion, el estilo de Escenas,
   una miniatura de REFERENCIA opcional (copia su estilo, no su contenido) y hasta 4
