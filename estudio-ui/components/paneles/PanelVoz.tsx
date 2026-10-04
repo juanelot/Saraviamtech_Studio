@@ -5,16 +5,17 @@ import { Mic, Square, Upload } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Deslizador, Segmentado, Tarjeta } from "../ui";
 import { AZURE_VOICES } from "@/lib/voces";
-import { clonadas, mmss, url, type VocesClonadas } from "@/lib/api";
+import { clonadas, mmss, url, vozPropia, type VocesClonadas } from "@/lib/api";
 
-export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado }: PanelProps) {
+export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado, recargar }: PanelProps) {
   const et = vista.etapas.voz;
   const v = p("voz");
   const voz = (v.voz as string) || "es-ES-AlvaroNeural-Male";
   const [idioma, setIdioma] = useState(() => voz.split("-").slice(0, 2).join("-"));
   const idiomas = useMemo(() => Array.from(new Set(AZURE_VOICES.map((x) => x.lang))).sort(), []);
   const voces = AZURE_VOICES.filter((x) => x.lang === idioma);
-  const [tipo, setTipo] = useState<"microsoft" | "clonada">(voz.startsWith("clon:") ? "clonada" : "microsoft");
+  const [tipo, setTipo] = useState<"microsoft" | "clonada" | "propia">(
+    voz.startsWith("clon:") ? "clonada" : voz.startsWith("propia:") ? "propia" : "microsoft");
 
   if (voz === "ninguna") {
     const tramos = (v.tramos as number[]) || [];
@@ -48,10 +49,10 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado }: Panel
         <div className="space-y-4">
           <Segmentado
             valor={tipo}
-            opciones={[{ v: "microsoft", t: "Voces de Microsoft" }, { v: "clonada", t: "Voz clonada" }]}
+            opciones={[{ v: "microsoft", t: "Microsoft" }, { v: "clonada", t: "Voz clonada" }, { v: "propia", t: "Mi audio" }]}
             onChange={(t) => {
               setTipo(t);
-              if (t === "microsoft" && voz.startsWith("clon:")) set("voz", "voz", "es-ES-AlvaroNeural-Male");
+              if (t === "microsoft" && !voz.startsWith("es-") && voz.includes(":")) set("voz", "voz", "es-ES-AlvaroNeural-Male");
             }}
           />
           {tipo === "microsoft" ? (
@@ -74,13 +75,18 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado }: Panel
                 </Campo>
               </div>
             </>
-          ) : (
+          ) : tipo === "clonada" ? (
             <VozClonada voz={voz} elegir={(v) => set("voz", "voz", v)} />
+          ) : (
+            <AudioPropio id={id} voz={voz} nombre={(v.propia_nombre as string) || ""} ocupado={ocupado}
+              subido={async () => { await recargar(); await ejecutar("voz"); }} />
           )}
-          <Campo etiqueta="Velocidad">
-            <Deslizador valor={Number(v.velocidad) || 1} min={0.7} max={1.5} paso={0.05}
-              onChange={(x) => set("voz", "velocidad", x)} formato={(x) => `${x.toFixed(2)}×`} />
-          </Campo>
+          {tipo !== "propia" && (
+            <Campo etiqueta="Velocidad">
+              <Deslizador valor={Number(v.velocidad) || 1} min={0.7} max={1.5} paso={0.05}
+                onChange={(x) => set("voz", "velocidad", x)} formato={(x) => `${x.toFixed(2)}×`} />
+            </Campo>
+          )}
           <div className="border-t border-linea pt-4">
             <p className="etiqueta mb-2">Planos</p>
             <p className="mb-3 text-xs text-tinta-3">
@@ -96,7 +102,9 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado }: Panel
             </Campo>
           </div>
           <button className="boton boton-linea" disabled={ocupado} onClick={() => ejecutar("voz")}>
-            {et.salida ? "Volver a sintetizar" : "Sintetizar voz"}
+            {voz.startsWith("propia:")
+              ? (et.salida ? "Volver a sincronizar" : "Sincronizar audio")
+              : (et.salida ? "Volver a sintetizar" : "Sintetizar voz")}
           </button>
         </div>
       </Tarjeta>
@@ -107,6 +115,13 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado }: Panel
           <>
             <Tarjeta titulo="Escuchar" extra={<span className="text-sm text-tinta-3">{mmss(et.salida.duracion)}</span>}>
               <audio controls className="w-full" src={url.archivo(id, et.salida.audio, et.terminado)} />
+              {et.salida.texto_de && (
+                <p className="mt-3 text-xs text-tinta-3">
+                  {et.salida.texto_de === "guion"
+                    ? `Subtitulos con el texto del guion (${Math.round((et.salida.coincidencia || 0) * 100)}% de las palabras se oyen igual) y los tiempos de tu audio.`
+                    : "Subtitulos con lo que entendio Whisper (no habia guion o no coincidia con el audio)."}
+                </p>
+              )}
             </Tarjeta>
             <Tarjeta titulo={`${et.salida.planos.length} planos`}>
               <ol className="max-h-[420px] space-y-1.5 overflow-auto pr-1">
@@ -241,6 +256,50 @@ function VozClonada({ voz, elegir }: { voz: string; elegir: (v: string) => void 
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function AudioPropio({ id, voz, nombre, ocupado, subido }: {
+  id: string; voz: string; nombre: string; ocupado: boolean; subido: () => Promise<void>;
+}) {
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const tiene = voz.startsWith("propia:");
+
+  async function subir(f: File | undefined) {
+    if (!f) return;
+    setSubiendo(true);
+    setError(null);
+    try {
+      await vozPropia(id, f);
+      await subido();
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <AvisoError texto={error} />
+      <p className="text-xs text-tinta-3">
+        Sube la narracion ya grabada (tu voz, o la que hiciste con Clonar-voz). Whisper saca el tiempo de cada palabra
+        para los subtitulos y los planos. Si el guion coincide con lo que se oye, los subtitulos usan el texto del guion.
+      </p>
+      {tiene && (
+        <>
+          <p className="text-sm text-tinta-2">Audio actual: <b>{nombre || voz.slice(7)}</b></p>
+          <audio controls className="w-full" src={url.archivo(id, `voz_propia/${voz.slice(7)}`)} />
+        </>
+      )}
+      <label className={`boton boton-linea cursor-pointer !py-1.5 text-sm ${subiendo || ocupado ? "pointer-events-none opacity-60" : ""}`}>
+        <Upload size={14} /> {subiendo ? "Subiendo…" : tiene ? "Cambiar audio" : "Subir audio"}
+        <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.opus,.flac,.webm" className="hidden"
+          onChange={(e) => { subir(e.target.files?.[0]); e.target.value = ""; }} />
+      </label>
+      <p className="text-xs text-tinta-3">Al subirlo se sincroniza solo (unos 8 s por minuto de audio).</p>
     </div>
   );
 }

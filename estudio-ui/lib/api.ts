@@ -48,7 +48,11 @@ export interface Recurso {
 export const mini = (r: { id: string; miniatura?: string }) => r.miniatura || r.id.split("-")[0];
 
 export interface SalidaGuion { texto: string; origen: string; palabras: number; duracion_estimada_s: number }
-export interface SalidaVoz { audio: string; srt: string; duracion: number; planos: Plano[] }
+export interface SalidaVoz {
+  audio: string; srt: string; duracion: number; planos: Plano[];
+  // solo con audio propio
+  texto?: string; texto_de?: "guion" | "transcripcion"; coincidencia?: number; idioma_detectado?: string;
+}
 export interface SalidaRecursos { recursos: Recurso[]; total: number; imagenes: number; videos: number; sin_descripcion: number }
 export interface SalidaEscenas { escenas: Escena[]; total: number; con_prompt: number; generar: string; script: string }
 export interface SalidaAsignacion { planos: Plano[]; recursos_usados: number; faltan?: number[] }
@@ -169,6 +173,12 @@ export const miniatura = {
 
 export interface VozClonada { id: string; nombre: string; duracion: number | null; transcripcion: string }
 export interface VocesClonadas { activo: boolean; voces: VozClonada[]; error: string | null }
+
+export const vozPropia = (id: string, archivo: File) => {
+  const fd = new FormData();
+  fd.append("audio", archivo, archivo.name);
+  return pedir<Vista>(`/proyectos/${id}/voz-propia`, { method: "POST", body: fd });
+};
 
 export const clonadas = {
   listar: () => pedir<VocesClonadas>("/voces-clonadas"),

@@ -100,8 +100,17 @@ Responde SOLO con el guion completo ampliado."""
 def ejecutar(ctx):
     p = ctx.params
     dir_salida = ctx.dir("guion")
+    propia = str(ctx.params_de("voz").get("voz") or "").startswith("propia:")
     if (p.get("texto_manual") or "").strip():
         texto, origen = limpiar(p["texto_manual"]), "manual"
+    elif propia and not p["material"].strip():
+        # Narracion subida sin guion: el texto sale de la transcripcion (etapa Voz).
+        ctx.avisar("sin guion: el texto saldra del audio subido", 100)
+        return {"texto": "", "origen": "audio_propio", "palabras": 0, "duracion_estimada_s": 0}
+    elif propia and p["modo"] != "literal":
+        # Con audio propio el guion no se redacta: el material se toma tal cual (si
+        # coincide con lo que se oye, los subtitulos usan su texto).
+        texto, origen = limpiar(p["material"]), "literal"
     elif p["modo"] == "literal":
         if not p["material"].strip():
             raise ValueError("el material esta vacio")

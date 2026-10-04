@@ -4,6 +4,7 @@ API del Estudio: proyectos por etapas (guion -> voz -> recursos -> asignacion
 
 Todas las rutas cuelgan de /api/v1/estudio.
 """
+import hashlib
 import json
 import os
 import re
@@ -229,6 +230,42 @@ def quitar(pid: str, nombre: str):
     if os.path.isfile(ruta):
         os.remove(ruta)
     return {"ok": True}
+
+
+AUDIO_PROPIO = (".wav", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm")
+
+
+@router.post("/estudio/proyectos/{pid}/voz-propia", summary="Subir una narracion ya grabada como voz")
+def voz_propia(pid: str, audio: UploadFile = File(...)):
+    """Guarda el audio en voz_propia/<hash><ext> y pone voz = "propia:<archivo>":
+    al ejecutar la etapa Voz, Whisper saca los tiempos de cada palabra."""
+    _existe(pid)
+    ext = os.path.splitext(audio.filename or "")[1].lower()
+    if ext not in AUDIO_PROPIO:
+        raise HTTPException(400, f"formato no admitido ({ext or 'sin extension'}): usa {', '.join(AUDIO_PROPIO)}")
+    carpeta = almacen.dir_proyecto(pid, "voz_propia", crear=True)
+    tmp = os.path.join(carpeta, "subida.part")
+    h = hashlib.sha256()
+    with open(tmp, "wb") as f:
+        while trozo := audio.file.read(1 << 20):
+            h.update(trozo)
+            f.write(trozo)
+    nombre = h.hexdigest()[:16] + ext
+    info = medios.sondear(tmp)
+    if not info.get("duracion"):
+        os.remove(tmp)
+        raise HTTPException(400, "no parece un audio valido")
+    for viejo in os.listdir(carpeta):  # solo se guarda el ultimo audio subido
+        if viejo not in ("subida.part", nombre):
+            os.remove(os.path.join(carpeta, viejo))
+    os.replace(tmp, os.path.join(carpeta, nombre))
+    with almacen.candado(pid):
+        proyecto = _existe(pid)
+        voz = proyecto["params"].setdefault("voz", {})
+        voz["voz"] = f"propia:{nombre}"
+        voz["propia_nombre"] = os.path.basename(audio.filename or nombre)[:120]
+        almacen.guardar(proyecto)
+    return _vista(pid)
 
 
 # ------------------------------------------------------------------ escenas

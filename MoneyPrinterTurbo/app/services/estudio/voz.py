@@ -9,11 +9,20 @@ largos que `plano_max_s`, para que ningun recurso se quede demasiado en pantalla
 Sin voz (voz = "ninguna", p. ej. estilos ASMR de un prompt maestro): silencio de
 la duracion de `tramos` (segundos de cada escena, se lee con .get) y un plano por
 tramo; el render usa entonces el sonido de los propios clips.
+
+Audio propio (voz = "propia:<archivo>", subido a voz_propia/): una narracion ya
+grabada (p. ej. hecha con Clonar-voz). Whisper da el tiempo de cada palabra; si el
+guion coincide con lo que se oye, los subtitulos usan el texto del guion (sin
+errores de transcripcion) con los tiempos de Whisper. Si no hay guion o no cuadra,
+se usa la transcripcion.
 """
+import difflib
 import json
 import math
 import os
 import re
+import threading
+import unicodedata
 
 from app.config import config
 from app.services import subtitle, voice
@@ -30,6 +39,9 @@ DEFECTOS = {
 
 
 SIN_VOZ = "ninguna"
+PROPIA = "propia:"
+MODELO_WHISPER = "base"   # rapido en CPU (~8 s por minuto de audio); el texto lo pone el guion
+COINCIDENCIA_MIN = 0.6    # fraccion de palabras del guion que deben oirse para usar su texto
 
 
 def _sin_voz(ctx):
@@ -77,8 +89,9 @@ def ejecutar(ctx):
     p = ctx.params
     if p["voz"] == SIN_VOZ:
         return _sin_voz(ctx)
+    propia = str(p["voz"]).startswith(PROPIA)
     texto = (ctx.salidas["guion"] or {}).get("texto", "").strip()
-    if not texto:
+    if not texto and not propia:
         raise ValueError("no hay guion")
     carpeta = ctx.dir("voz")
     audio = os.path.join(carpeta, "voz.mp3")
@@ -87,7 +100,10 @@ def ejecutar(ctx):
         if os.path.exists(f):
             os.remove(f)
 
-    if str(p["voz"]).startswith("clon:"):
+    extra = {}
+    if propia:
+        duracion, extra = _voz_propia(ctx, texto, audio, srt)
+    elif str(p["voz"]).startswith("clon:"):
         duracion = _voz_clonada(ctx, texto, audio, srt)
     else:
         duracion = _voz_tts(ctx, texto, audio, srt)
@@ -103,7 +119,7 @@ def ejecutar(ctx):
         json.dump(segmentos, f, ensure_ascii=False, indent=1)
     ctx.avisar(f"voz lista: {duracion:.1f}s, {len(segmentos)} planos", 100)
     return {"audio": "voz/voz.mp3", "srt": "voz/subtitulos.srt",
-            "duracion": round(duracion, 3), "planos": segmentos}
+            "duracion": round(duracion, 3), "planos": segmentos, **extra}
 
 
 def _voz_tts(ctx, texto, audio, srt):
@@ -162,8 +178,9 @@ def _guardar_palabras(sub_maker, destino):
     return sueltas
 
 
-# Fin de frase: signo de puntuacion seguido de espacio (asi "00:41" o "3.5" no cortan).
-FIN_FRASE = re.compile(r"(?<=[.!?;:,\u2026])\s+|\n+")
+# Fin de frase: signo de puntuacion seguido de espacio (asi "00:41" o "3.5" no cortan),
+# salvo tras una inicial ("John D. Rockefeller").
+FIN_FRASE = re.compile(r"(?<![\s(][A-Z]\.)(?<=[.!?;:,\u2026])\s+|\n+")
 
 
 def srt_de_palabras(texto, palabras, destino):
@@ -213,3 +230,107 @@ def _voz_clonada(ctx, texto, audio, srt):
     with open(srt, "w", encoding="utf-8") as f:
         f.write("\n".join(lineas) + "\n")
     return duracion
+
+
+# ------------------------------------------------------------------ audio propio
+
+_whisper = None
+_whisper_candado = threading.Lock()
+
+
+def _modelo_whisper():
+    global _whisper
+    with _whisper_candado:
+        if _whisper is None:
+            from faster_whisper import WhisperModel
+            _whisper = WhisperModel(MODELO_WHISPER, device="cpu", compute_type="int8")
+    return _whisper
+
+
+def _norm(palabra):
+    t = unicodedata.normalize("NFD", palabra.lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^\w%$€]+", "", t)
+
+
+def alinear(texto, oidas):
+    """Pone a cada palabra del guion el tiempo de la palabra que se oye. Las que no
+    casan (numeros dichos con letras, cambios al grabar) se reparten entre las
+    vecinas que si casan. None si el guion no se parece a lo que se oye."""
+    guion = texto.split()
+    if not guion or not oidas:
+        return None
+    sm = difflib.SequenceMatcher(None, [_norm(w) for w in guion], [_norm(w[2]) for w in oidas], autojunk=False)
+    tiempos = [None] * len(guion)
+    for bloque in sm.get_matching_blocks():
+        for k in range(bloque.size):
+            a, b, _w = oidas[bloque.b + k]
+            tiempos[bloque.a + k] = (a, b)
+    casadas = sum(t is not None for t in tiempos)
+    if casadas < COINCIDENCIA_MIN * len(guion):
+        return None
+    i = 0
+    while i < len(guion):
+        if tiempos[i] is not None:
+            i += 1
+            continue
+        j = i
+        while j < len(guion) and tiempos[j] is None:
+            j += 1
+        ini = tiempos[i - 1][1] if i > 0 else oidas[0][0]
+        fin = tiempos[j][0] if j < len(guion) else oidas[-1][1]
+        fin = max(fin, ini)
+        pesos = [len(w) + 1 for w in guion[i:j]]
+        total, cursor = sum(pesos), ini
+        for k, pz in zip(range(i, j), pesos):
+            d = (fin - ini) * pz / total
+            tiempos[k] = (cursor, cursor + d)
+            cursor += d
+        i = j
+    palabras = [[round(a, 3), round(b, 3), w] for (a, b), w in zip(tiempos, guion)]
+    return palabras, casadas / len(guion)
+
+
+def _voz_propia(ctx, texto, audio, srt):
+    """Narracion subida: se convierte a mp3 y Whisper da el tiempo de cada palabra."""
+    nombre = str(ctx.params["voz"])[len(PROPIA):]
+    origen = ctx.dir("voz_propia", nombre, crear=False)
+    if not nombre or os.path.basename(nombre) != nombre or not os.path.isfile(origen):
+        raise FileNotFoundError("no esta el audio subido: vuelve a subirlo en el paso Voz")
+    ctx.avisar("convirtiendo el audio subido", 3)
+    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", origen, "-vn",
+                       "-c:a", "libmp3lame", "-q:a", "2", audio], timeout=1800)
+    if r.returncode != 0 or not os.path.exists(audio):
+        raise RuntimeError(f"ffmpeg no pudo leer el audio subido: {r.stderr[-300:]}")
+    duracion = float(medios.sondear(audio).get("duracion") or 0)
+    if duracion <= 0:
+        raise RuntimeError("no se pudo medir la duracion del audio subido")
+
+    ctx.avisar("cargando Whisper", 5)
+    segmentos, info = _modelo_whisper().transcribe(origen, word_timestamps=True, vad_filter=True, beam_size=1)
+    oidas = []
+    for s in segmentos:
+        oidas += [(float(w.start), float(w.end), w.word.strip()) for w in (s.words or []) if w.word.strip()]
+        ctx.avisar(f"transcribiendo {int(s.end) // 60}:{int(s.end) % 60:02d} de "
+                   f"{int(duracion) // 60}:{int(duracion) % 60:02d}", 8 + 80 * min(1.0, s.end / duracion))
+    if not oidas:
+        raise RuntimeError("Whisper no entendio ninguna palabra en el audio subido")
+
+    alineado = alinear(texto, oidas) if texto else None
+    if alineado:
+        palabras, coincidencia = alineado
+        texto_final, fuente = texto, "guion"
+    else:
+        palabras = [[round(a, 3), round(b, 3), w] for a, b, w in oidas]
+        texto_final, fuente, coincidencia = " ".join(w for _a, _b, w in oidas), "transcripcion", 0.0
+    with open(os.path.join(ctx.dir("voz"), "palabras.json"), "w", encoding="utf-8") as f:
+        json.dump(palabras, f, ensure_ascii=False)
+    with open(os.path.join(ctx.dir("voz"), "transcripcion.txt"), "w", encoding="utf-8") as f:
+        f.write(" ".join(w for _a, _b, w in oidas))
+    ctx.avisar("calculando tiempos de cada frase", 90)
+    if not srt_de_palabras(texto_final, palabras, srt):
+        raise RuntimeError("no se pudieron ordenar los tiempos de las frases")
+    ctx.avisar(f"audio propio: {len(palabras)} palabras, texto del "
+               f"{'guion (' + str(round(coincidencia * 100)) + '% coincide)' if fuente == 'guion' else 'Whisper'}", 92)
+    return duracion, {"texto": texto_final, "texto_de": fuente, "coincidencia": round(coincidencia, 3),
+                      "idioma_detectado": info.language}
