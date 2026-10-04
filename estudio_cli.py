@@ -35,7 +35,7 @@ Salida: codigo 0 si termina bien, 1 si falla. Imprime el id del proyecto al
 principio (PROYECTO=<id>) para poder retomarlo.
 
 Variables de entorno (las mismas que zenn_cli.py):
-  MPT_API_BASE    URL base de la API v1 (default: https://virales.saraviamtech.com/api/mpt/v1)
+  MPT_API_BASE    URL base de la API v1 (default: https://estudio.saraviamtech.com/api/motor)
   MPT_BASIC_AUTH  usuario:password si hay auth basica delante (opcional)
 """
 
@@ -49,7 +49,7 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_API_BASE = os.environ.get("MPT_API_BASE", "https://virales.saraviamtech.com/api/mpt/v1")
+DEFAULT_API_BASE = os.environ.get("MPT_API_BASE", "https://estudio.saraviamtech.com/api/motor")
 ETAPAS = ["guion", "voz", "escenas", "recursos", "asignacion", "render"]
 EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 

@@ -1,21 +1,321 @@
 # Saraviamtech Studio
 
-Sistema de creación de video con IA desarrollado por **[Saraviamtech](https://github.com/juanelot)**: del tema o el guion al video final montado, con voz, subtítulos animados, edición y miniatura.
+Estudio de creación de video con IA desarrollado por **[Saraviamtech](https://github.com/juanelot)**.
+Va del tema o el guion al video final montado, con voz, escenas y prompts para Google Flow, subtítulos animados, edición con efectos y miniatura.
+
+Claude hace todo el trabajo de texto e imagen a través de **Claude CLI**, con tu suscripción de Claude y sin API key. El montaje se hace con ffmpeg en tu máquina o en tu VPS.
 
 ---
 
-## ¿Qué es?
+## Índice
 
-Saraviamtech Studio reúne dos aplicaciones sobre un mismo motor de video:
+1. [Cómo se trabaja: los pasos](#cómo-se-trabaja-los-pasos)
+2. [Funciones](#funciones)
+3. [Conexión con Claude CLI (local y VPS)](#conexión-con-claude-cli)
+4. [Instalación local](#instalación-local)
+5. [Despliegue en VPS](#despliegue-en-vps)
+6. [Automatización por terminal](#automatización-por-terminal)
+7. [Estructura del proyecto](#estructura-del-proyecto)
 
-- **Estudio por etapas** (`estudio-ui`, puerto 3100), la aplicación principal. Trabaja con tus propios recursos y usa Claude como cerebro: guion → voz → escenas y prompts → contenido → ajuste → video → miniatura. Incluye prompts maestros, series, voz clonada, narración propia y tres estilos de edición.
-- **Creador rápido** (`mpt-ui`, puerto 3000). Genera videos cortos en un clic:
-  1. **Guion:** la IA lo escribe según tu tema.
-  2. **Voz:** más de 331 voces neuronales gratuitas.
-  3. **Clips:** de Pexels o Pixabay, o tus propios videos e imágenes.
-  4. **Video final:** se ensambla con subtítulos quemados y música de fondo.
+---
 
-El creador rápido también trae panel de logs en tiempo real, biblioteca de videos, preview de voz, subida de medios y de música, modo de imágenes sincronizadas con la voz y una CLI de automatización.
+## Cómo se trabaja: los pasos
+
+Cada video es un **proyecto** que avanza por pasos. Puedes ir en orden o volver a cualquier paso: solo se rehace lo que depende de lo que cambiaste.
+
+| Paso | Qué haces | Quién trabaja |
+|---|---|---|
+| **Material** | Pegas el tema, notas o fuentes; eliges la duración (hasta 3 h) y el idioma. | Tú |
+| **Guion** | Claude redacta la locución, o pegas tu guion tal cual. | Claude CLI |
+| **Voz** | Voces de Microsoft, voz clonada o tu propio audio ("Mi audio"). | TTS / Whisper |
+| **Escenas** | Eliges el formato (16:9, 9:16 o 1:1) y el estilo; Claude corta el guion en escenas y escribe el prompt de imagen (y de video) de cada una. | Claude CLI |
+| **Contenido** | Subes lo que generaste en Flow, la carpeta de la extensión, un ZIP o tus propios recursos. | Tú |
+| **Ajuste** | Revisas qué imagen o clip va en cada plano y fijas a mano lo que quieras. | Claude CLI / tú |
+| **Video** | Eliges el estilo de edición (Clásico, Editorial o Intenso) y la música, y montas el video. | ffmpeg |
+| **Miniatura** | Claude propone conceptos y prompts para la miniatura; subes la final. | Claude CLI |
+
+```
+material → guion → voz → escenas + prompts ─┐   ← contenido creado por ti en Flow / extensión
+                    recursos (tus archivos) ─┴→ ajuste → video → miniatura
+```
+
+**Por etapas y con firma.** Cada etapa guarda la firma de sus entradas. Por ejemplo, otra música solo rehace el acabado, fijar un plano rehace ese clip y editar el guion rehace la voz y lo que viene después. Las respuestas de Claude se guardan en caché, así que repetir un paso sin cambios no lo vuelve a llamar.
+
+---
+
+## Funciones
+
+### Guion
+- Claude lo redacta a partir de tu material, con la duración pedida (de segundos a 3 horas). Si sale corto, hace una segunda pasada para ampliarlo.
+- También puedes pegar tu propio guion y se usa tal cual.
+
+### Voz
+- **Microsoft:** más de 300 voces neuronales en muchos idiomas, con el tiempo exacto de cada palabra.
+- **Voz clonada:** el Estudio se conecta a un servidor [Clonar-voz](https://github.com/jceronch1/Clonar-voz) (Qwen3-TTS) que puede estar en esta máquina o en otra con GPU, configurado en `estudio_voz_clonada_url`. Desde el panel grabas o subes 10–15 s de voz y queda en la biblioteca.
+- **Mi audio:** subes una narración ya grabada (tu voz, o la que hiciste con Clonar-voz) en WAV, MP3, M4A, OGG o FLAC, y se sincroniza sola.
+  - Whisper saca el tiempo de cada palabra; si el guion coincide con lo que se oye, los subtítulos usan el texto del guion.
+  - Tarda unos 8 s por minuto de audio en CPU (14,5 min en menos de 2 min).
+- La narración se corta en **planos** según sus pausas; cada plano lleva una imagen o clip.
+
+### Escenas y prompts para Flow
+- **Formato:** se elige aquí y es el mismo para las imágenes y para el video final (16:9 por defecto). Se le pasa a Claude en todos los lotes, sin excepción.
+- Claude agrupa las frases en escenas de la duración que elijas y escribe para cada una:
+  - un **prompt de imagen**, que describe una imagen fija, sin movimiento, cámara ni tiempos;
+  - y, si lo pides, un **prompt de video** (image-to-video), que es donde va el movimiento.
+- Todos los lotes reciben el mismo contexto: guion completo, estilo visual, indicaciones (personajes fijos, época…), formato e idioma, más las últimas escenas ya escritas para mantener la continuidad.
+- **La narración de cada escena es el texto exacto del guion, con su puntuación.** Se corta en código; Claude no la reescribe.
+- **Validación automática** antes de guardar:
+  - el formato es correcto (en 16:9 ningún prompt dice "9:16", "vertical" ni "portrait", y al revés);
+  - la narración unida es idéntica al guion;
+  - las imágenes no describen movimiento;
+  - las escenas son consecutivas.
+
+  Las escenas que fallan se rehacen solas; si alguna sigue fallando, aparece un aviso con su número.
+- Puedes descargar `script.json` (formato de la extensión "AI Content Generator") o `prompts.txt`, copiar los prompts y corregir cualquiera a mano.
+
+### Contenido y ajuste
+- Subes la carpeta de la extensión (`images/` y `videos/`), un ZIP o archivos sueltos. Cada archivo va a su escena por el número de su nombre (`1.png`, `scene_2.mp4`); si una escena tiene imagen y video, se usa el video.
+- **Con tus propios recursos** (sin escenas), Claude mira una miniatura de cada imagen o video, lo describe y elige qué recurso va en cada plano. Cualquier plano se puede fijar a mano.
+- El botón **último fotograma** saca el último cuadro de un clip para encadenar segmentos en Flow.
+
+### Video: montaje y estilos de edición
+El montaje se hace con ffmpeg: un clip por plano, en caché, y el acabado (voz, música y subtítulos) en una sola pasada. Hay tres estilos:
+
+- **Clásico:** subtítulos por frase, sin efectos.
+- **Editorial:** efectos sobrios de documental, cada uno activable por separado:
+  - subtítulos palabra por palabra con la palabra clave en color;
+  - rótulos de cifras, fechas y nombres;
+  - whoosh en los cortes, golpe grave en las revelaciones y música que baja sola bajo la voz;
+  - ritmo de entrada y zoom en las revelaciones;
+  - color unificado (natural, cálido, cine o frío) y gancho en los primeros 2 s;
+  - momentos clave, como mucho uno cada 20 s: cita destacada, pausa dramática, destello y blanco y negro para el pasado.
+- **Intenso:** el estilo para redes, lleno de efectos. Usa lo mismo que el editorial con más densidad y añade:
+  - subtítulos en mayúsculas en los que crece la palabra que suena;
+  - la palabra clave gigante con temblor y desfase de color en las revelaciones;
+  - flash en los cambios de imagen;
+  - barra de progreso;
+  - franjas de cine en las citas;
+  - un "pop" en los rótulos y una subida de tensión antes de cada revelación.
+
+Claude marca las palabras clave, los datos y los momentos fuertes en una sola pasada y siempre escribe esos textos en el idioma de la narración. Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/` (`whoosh`, `golpe`); si no los hay, se generan solos.
+
+### Miniatura
+- Claude propone de 1 a 5 conceptos, cada uno con su texto y el prompt para Flow, con y sin texto (para Canva).
+- Se basa en el guion, el estilo, las imágenes del proyecto y, si la subes, una miniatura de referencia (copia el estilo, no el contenido).
+- La miniatura final queda como portada en Mis videos.
+
+### Prompts maestros, creaciones y series
+- **Biblioteca de prompts maestros** (menú superior): subes un prompt maestro (.docx, .txt, .md o texto) y Claude lo desglosa en una ficha con sus pasos, preguntas, entregables, formato y reglas.
+- **Crear contenido:** Claude ejecuta el maestro paso a paso con botones, o en modo automático. Al final ordena los entregables: guion, escenas con sus prompts, miniaturas y `script.json`.
+- **Hojas de referencia** de personajes y lugares, **series** con biblia compartida y episodios.
+- **Crear video:** convierte una creación en un proyecto del Estudio ya relleno, con cuatro opciones de narración: su guion, guion demostración, guion libre o sin voz.
+
+### Asistente y Mis videos
+- **Asistente** (la burbuja de abajo a la derecha): un chat con tu cuenta de Claude que ve el estado del proyecto y puede leer el código para explicar un error. No puede leer `config.toml` ni credenciales.
+- **Mis videos:** cada tarjeta tiene portada y las acciones Ver, Descargar, Editar, Duplicar, Renombrar y Borrar.
+
+---
+
+## Conexión con Claude CLI
+
+### Cómo funciona
+
+El Estudio **no usa la API de Anthropic ni una API key**. Cada vez que necesita a Claude (guion, escenas, catálogo visual, asignación, edición, miniatura, prompts maestros, asistente), el backend lanza el programa **Claude Code** en modo no interactivo:
+
+```
+claude -p --model <haiku|sonnet|opus> --effort <low|medium|high> --output-format json
+```
+
+- La instrucción va por la entrada estándar y la respuesta vuelve en JSON.
+- Usa la **sesión de tu cuenta de Claude** (Pro o Max) guardada en la máquina donde corre el backend, así que el consumo cuenta contra tu suscripción.
+- Para que nunca salga de la suscripción, el backend quita del proceso hijo `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` y las variables de Bedrock/Vertex. Aunque tengas una API key en el sistema, no se usa.
+- Por seguridad se lanza sin MCP (`--strict-mcp-config`) y con las herramientas desactivadas. Solo se permite `Read`, dentro de la carpeta del proyecto, cuando Claude tiene que mirar imágenes.
+- El modelo y el esfuerzo se eligen en cada paso de la interfaz. `low` es lo más rápido; `medium` y `high` piensan más y tardan más.
+
+Código: `MoneyPrinterTurbo/app/services/claude_cli.py`.
+
+### En local (Windows, macOS o Linux)
+
+1. **Instala Claude Code** en la misma máquina donde corre el backend.
+
+   ```powershell
+   # Windows (PowerShell)
+   irm https://claude.ai/install.ps1 | iex
+   ```
+   ```bash
+   # macOS / Linux
+   curl -fsSL https://claude.ai/install.sh | bash
+   ```
+   También sirve `npm install -g @anthropic-ai/claude-code`.
+
+2. **Inicia sesión** con tu cuenta de Claude: ejecuta `claude`, escribe `/login`, elige *Claude account (Pro/Max)* y completa el login en el navegador. La sesión queda guardada en tu usuario (`%USERPROFILE%\.claude` en Windows, `~/.claude` en macOS/Linux).
+
+3. **Comprueba que responde** sin abrir el modo interactivo:
+
+   ```bash
+   claude -p "responde solo: ok" --model haiku
+   ```
+   Si contesta `ok`, el Estudio ya puede usarlo.
+
+4. **Arranca el backend con el mismo usuario** con el que hiciste el login. El backend busca `claude` en el PATH. Si lo arrancas desde otro sitio (un servicio, una tarea programada o un PATH distinto) y no lo encuentra, pon la ruta completa en `config.toml`:
+
+   ```toml
+   [app]
+   claude_cli_path = "C:/Users/<tu-usuario>/.local/bin/claude.exe"   # Windows (instalador nativo)
+   # claude_cli_path = "/home/<usuario>/.local/bin/claude"            # Linux
+   ```
+
+### En el VPS (Docker Swarm)
+
+La imagen del backend (`MoneyPrinterTurbo/Dockerfile`) ya instala Claude Code. Solo falta darle una sesión, que se guarda fuera del contenedor para que no se pierda al actualizar.
+
+1. **Volumen de sesión.** Ya está en `docker-stack.yml`, en el servicio `api`:
+
+   ```yaml
+   volumes:
+     - /root/mpt-data/claude:/root/.claude
+   environment:
+     - CLAUDE_CONFIG_DIR=/root/.claude
+   ```
+   Crea la carpeta una vez: `mkdir -p /root/mpt-data/claude`.
+
+2. **Inicia sesión**, una sola vez. Elige una de estas dos formas:
+
+   - **A. Login dentro del contenedor:**
+     ```bash
+     docker exec -it $(docker ps -qf name=mpt_api) claude
+     # dentro: /login → elige "Claude account" → abre la URL en tu navegador,
+     # autoriza y pega el código que te da. Sal con /exit.
+     ```
+     La sesión queda en `/root/mpt-data/claude` y sobrevive a reinicios y actualizaciones.
+
+   - **B. Token de larga duración**, sin login interactivo:
+     ```bash
+     # En tu PC (con sesión iniciada):
+     claude setup-token
+     # Copia el token (sk-ant-oat01-...)
+     ```
+     En Portainer, añade al servicio `api` la variable `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...` y vuelve a desplegar el stack. Trata ese token como una contraseña.
+
+3. **Comprueba** desde el VPS:
+
+   ```bash
+   docker exec -it $(docker ps -qf name=mpt_api) claude -p "responde solo: ok" --model haiku
+   ```
+
+### Ajustes en `config.toml`
+
+```toml
+[app]
+claude_cli_model = "sonnet"   # por defecto cuando un paso no indica modelo: haiku | sonnet | opus
+claude_cli_effort = "low"     # low | medium | high | xhigh | max
+claude_cli_timeout = 0        # segundos; 0 = automático según modelo y esfuerzo
+claude_cli_path = ""          # vacío = buscar `claude` en el PATH
+```
+
+### Problemas frecuentes
+
+| Mensaje | Causa | Solución |
+|---|---|---|
+| `no se encontro el CLI claude` | Claude Code no está instalado o no está en el PATH del backend | Instálalo o pon `claude_cli_path` |
+| `Not logged in` / `Please run /login` | No hay sesión, o expiró | Repite el login (local: `claude` → `/login`; VPS: forma A o B) |
+| `cupo de la suscripcion agotado` | Llegaste al límite de uso de tu plan | Espera a que se renueve y vuelve a lanzar el paso. Las etapas ya terminadas no se repiten |
+| `sin respuesta en N s` | Tarea muy larga con esfuerzo alto | Baja el esfuerzo a `low` o `medium`, o sube `claude_cli_timeout` |
+| La sesión desaparece al actualizar el VPS | Falta el volumen `/root/mpt-data/claude` | Revisa el volumen y `CLAUDE_CONFIG_DIR` en `docker-stack.yml` |
+
+---
+
+## Instalación local
+
+### Requisitos
+- Python 3.10 o superior, y Node.js 18 o superior.
+- **ffmpeg con libass** en el PATH. El build de gyan.dev en Windows y el de apt o Docker en Linux lo traen.
+- **Claude Code** con sesión iniciada (ver [Conexión con Claude CLI](#conexión-con-claude-cli)).
+- **Git LFS**, porque la música y las fuentes van por LFS: `git lfs install` antes de clonar.
+
+### Pasos
+
+```bash
+git clone https://github.com/juanelot/Saraviamtech_Studio.git
+cd Saraviamtech_Studio
+
+# Backend (motor + API del Estudio) → http://localhost:8080
+cd MoneyPrinterTurbo
+python -m venv .venv
+.venv\Scripts\activate            # Windows  (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements.txt
+cp config.example.toml config.toml
+python main.py
+
+# Estudio (otra terminal) → http://localhost:3100
+cd estudio-ui
+npm install
+npm run dev
+```
+
+Opciones del Estudio en `config.toml` (`[app]`):
+
+```toml
+estudio_carpetas_permitidas = []   # carpetas del servidor que el Estudio puede leer como recursos
+estudio_voz_clonada_url = ""       # URL del servidor Clonar-voz (vacío = solo voces de Microsoft)
+```
+
+La primera vez que uses **Mi audio**, Whisper descarga su modelo (unos 150 MB). Hace falta internet solo esa vez.
+
+> El backend no recarga el código solo: después de actualizar, reinicia `python main.py`.
+
+---
+
+## Despliegue en VPS
+
+La guía completa está en **[DEPLOY.md](DEPLOY.md)** (Portainer + Traefik + Docker Swarm). Resumen del Estudio:
+
+```bash
+mkdir -p /root/mpt-data/claude /root/mpt-data/recursos
+docker build -t mpt-api:latest ./MoneyPrinterTurbo
+docker build -t estudio-ui:latest --build-arg MPT_API_URL=http://api:8080 ./estudio-ui
+docker stack deploy -c docker-stack.yml mpt
+```
+
+- **Dominio:** `estudio.saraviamtech.com` (label `Host(...)` del servicio `estudio`), con auth básica de Traefik.
+- **Sesión de Claude:** ver [En el VPS](#en-el-vps-docker-swarm).
+- **Datos persistentes:** proyectos en `/root/mpt-data/storage/estudio/`, recursos del servidor en `/root/mpt-data/recursos` (dentro del contenedor, `/recursos`).
+- **Actualizar:** `git pull`, reconstruir las dos imágenes y luego `docker service update --force mpt_api` y `docker service update --force mpt_estudio`.
+
+---
+
+## Automatización por terminal
+
+Dos CLIs para que Hermes, n8n o un cron trabajen sin abrir el navegador. Usan la API del Estudio:
+
+```bash
+# Contra el VPS (por defecto): https://estudio.saraviamtech.com/api/motor
+export MPT_BASIC_AUTH="usuario:password"          # la auth básica de Traefik
+# En local:
+export MPT_API_BASE="http://localhost:8080/api/v1"
+```
+
+**`estudio_cli.py`** crea o continúa proyectos:
+
+```bash
+python estudio_cli.py --titulo "Rockefeller" --material-archivo notas.txt --minutos 12 \
+    --recursos-dir ./mis_recursos --formato 16:9 --out ./videos
+python estudio_cli.py --titulo "X" --guion-archivo guion.txt --asignacion escenas \
+    --generar imagenes --hasta escenas --exportar-json ./flow/script.json
+python estudio_cli.py --proyecto <id> --contenido-dir ./flow --out ./videos   # sube lo de Flow y monta
+```
+
+Imprime `PROYECTO=<id>` al empezar y sale con código 0 si todo va bien y 1 si falla. Hay un perfil de ejemplo en `estudio_perfil.example.json`.
+
+**`maestros_cli.py`** trabaja con los prompts maestros:
+
+```bash
+python maestros_cli.py listar
+python maestros_cli.py crear --maestro "paper craft" --tema "un faro en una isla" --sin-paradas --out ./flow/faro
+python maestros_cli.py video --maestro "paper craft" --creacion <id> --narracion demostracion
+```
+
+Sale con código 0 si está listo, 1 si hay un error y 2 si el flujo espera una respuesta (contéstala con `responder`).
 
 ---
 
@@ -23,339 +323,25 @@ El creador rápido también trae panel de logs en tiempo real, biblioteca de vid
 
 ```
 Saraviamtech_Studio/
-├── MoneyPrinterTurbo/          # Backend Python (FastAPI): motor de video y API del Estudio
-│   ├── app/
-│   ├── storage/
-│   │   ├── tasks/              # Videos generados
-│   │   ├── cache_videos/       # Clips descargados de Pexels/Pixabay
-│   │   └── local_videos/       # Tus videos locales
-│   ├── config.toml             # Configuración principal
-│   └── main.py
-├── estudio-ui/                 # Estudio por etapas (Next.js 16)
-└── mpt-ui/                     # Creador rápido (Next.js 16)
-    ├── app/
-    │   ├── page.tsx            # Root — tabs Crear / Mis videos
-    │   └── api/library/        # API para gestión de biblioteca
-    ├── components/
-    │   ├── VideoForm.tsx        # Formulario principal
-    │   ├── GenerationProgress.tsx
-    │   ├── VideoResult.tsx
-    │   ├── VideoLibrary.tsx     # Biblioteca de videos
-    │   └── LogPanel.tsx         # Panel de logs en tiempo real
-    └── lib/
-        └── voices.ts            # 331 voces Azure generadas desde azure_voices.json
+├── estudio-ui/                     # Interfaz del Estudio (Next.js 16, puerto 3100)
+│   ├── app/                        # Páginas: inicio, proyecto (/p/<id>), maestros
+│   ├── components/paneles/         # Un panel por paso (Guion, Voz, Escenas, Video…)
+│   └── lib/                        # API, marca (marca.ts), voces
+├── MoneyPrinterTurbo/              # Backend (FastAPI, puerto 8080): motor de video + API
+│   ├── app/services/estudio/       # Una etapa por archivo; el grafo de etapas en grafo.py
+│   ├── app/services/claude_cli.py  # Conexión con Claude CLI
+│   ├── app/controllers/v1/estudio.py   # Rutas /api/v1/estudio/*
+│   ├── storage/estudio/            # Proyectos, maestros, catálogo
+│   └── config.toml
+├── estudio_cli.py · maestros_cli.py    # Automatización por terminal
+├── docker-stack.yml · DEPLOY.md        # Despliegue en VPS
 ```
-
----
-
-## Instalación
-
-### Requisitos previos
-
-- Python 3.10+
-- Node.js 18+
-- FFmpeg instalado y en PATH
-- ImageMagick (para subtítulos)
-
-### 1. Clonar el repositorio
-
-```bash
-git clone https://github.com/juanelot/Saraviamtech_Studio.git
-cd Saraviamtech_Studio
-```
-
-### ⚠️ Requisito: Git LFS
-
-Las canciones MP3 y fuentes TTF/TTC se almacenan con **Git LFS**. Asegúrate de tenerlo instalado antes de clonar:
-
-```bash
-# Instalar Git LFS (solo una vez por máquina)
-git lfs install
-```
-
-Descarga en Windows: https://git-lfs.com — con LFS instalado el `git clone` descarga todo automáticamente.
-
-### 2. Configurar el backend
-
-```bash
-cd MoneyPrinterTurbo
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-pip install -r requirements.txt
-```
-
-Edita `config.toml` y agrega tus API keys:
-
-```toml
-[app]
-openai_api_key = "sk-..."          # GPT-4o mini para guiones
-pexels_api_keys = ["tu-key"]       # gratis en pexels.com/api
-pixabay_api_keys = ["tu-key"]      # gratis en pixabay.com/api/docs
-```
-
-Inicia el backend:
-
-```bash
-python main.py
-# Corre en http://localhost:8080
-```
-
-### 3. Configurar el frontend
-
-```bash
-cd ../mpt-ui
-npm install
-npm run dev
-# Corre en http://localhost:3000
-```
-
----
-
-## Uso
-
-1. Abre `http://localhost:3000`
-2. Escribe el tema del video en "Asunto"
-3. Elige fuente de clips: **Pexels**, **Pixabay** o **Local**
-4. Selecciona voz (filtra por idioma)
-5. Haz clic en **Generar video**
-6. Espera 5–15 minutos (FFmpeg ensambla el video final)
-7. Descarga desde la pantalla de resultado o desde **Mis videos**
-
-### Medios locales
-
-Si quieres usar tus propios clips:
-- Selecciona "Local (archivos propios)" como fuente
-- Sube videos (MP4, MOV, AVI, FLV, MKV) o imágenes (JPG, PNG)
-- **Resolución mínima: lado corto ≥ 400px** (clips verticales de IA tipo 464×832 sirven).
-  Los que no cumplan se descartan con un aviso en los logs.
-- Las imágenes se convierten a clips con efecto zoom (~30-60s de procesado por
-  imagen — sube solo las necesarias: con clips de 4s, ~15 imágenes ≈ 1 min de video)
-- Si un archivo aparece como "skip unreadable local material", está corrupto o es
-  una imagen renombrada como .mp4 — re-exportarlo
-
-### Música de fondo personalizada
-
-En "Música de fondo" hay 3 opciones: **Sin música**, **Aleatoria** (MP3s incluidos
-en `resource/songs`) y **Personalizada**:
-- Al elegir "Personalizada" aparece el botón **Subir música** (MP3) y la lista de
-  canciones subidas — haz clic en una para seleccionarla
-- Sin canción seleccionada el video sale **sin** música
-- Disponible tanto en "Crear video" como en el modo Zenn; las canciones subidas
-  se comparten entre ambos
-- En el VPS las canciones persisten en `/root/mpt-data/songs` (ver [DEPLOY.md](DEPLOY.md))
-
----
-
-## Estudio por etapas (`estudio-ui/` + `estudio_cli.py`)
-
-App aparte, con la marca Saraviamtech (nombre y rutas de los logos en `estudio-ui/lib/marca.ts`; los logos están en `estudio-ui/public/marca/`, el favicon en `estudio-ui/app/icon.png` y los colores en `app/globals.css`), que usa este mismo backend como motor. En lugar de ir a Pexels o generar imágenes, trabaja con **tus recursos**: imágenes y videos mezclados, subidos, en una carpeta del servidor o como URLs. **Claude CLI** hace el trabajo de texto con tu suscripción, sin API key.
-
-```
-material → guion (Claude) → voz (TTS) → escenas + prompts (Claude) ─┐   ← contenido creado por ti en Flow / extensión
-                                     recursos (tus archivos) ────────┴→ ajuste (por escena, o Claude elige) → video
-```
-
-- **Por etapas y con firma.** Cada etapa guarda la firma de sus entradas. Si cambias algo, solo se rehace lo que dependía de eso: otra música rehace el acabado, fijar un plano a mano rehace ese clip, y editar el guion rehace la voz y lo que viene después.
-- **Catálogo visual.** Claude mira una miniatura de cada recurso (en los videos, 3 fotogramas) y escribe una descripción que puedes corregir. Va por hash de contenido y se cachea, así que un archivo nunca se describe dos veces.
-- **Planos.** La voz se corta en planos según sus pausas, igual que en el modo local. Claude elige qué recurso va en cada plano según lo que se dice ahí. Cualquier plano se puede fijar a mano.
-- **Render rápido.** Se genera un clip por plano con ffmpeg (zoom lento en las imágenes y bucle en los videos cortos) y los clips se cachean. El acabado (subtítulos ASS, voz y música) se hace en una sola pasada de ffmpeg: ~25 s frente a ~8 min del acabado MoviePy clásico, que sigue disponible como opción.
-
-- **Contenido creado en Flow o con la extensión, sin APIs de imagen.** En el paso **Escenas**, Claude agrupa las frases de la voz en escenas de unos 6–8 s y escribe para cada una el prompt de imagen y, si lo pides, el de video. Puedes descargar el `script.json` en el formato de la extensión "AI Content Generator", descargar `prompts.txt` o copiar los prompts uno a uno.
-
-  Después generas el contenido tú mismo y en **Contenido** subes la carpeta de la extensión (`images/` y `videos/`), un ZIP o archivos sueltos. Cada archivo va a su escena según el número de su nombre (`1.png`, `scene_2.mp4`); si una escena tiene imagen y video, se usa el video. Al final revisas en **Ajuste** y montas el video.
-
-  Con el CLI: `--asignacion escenas --generar imagenes_videos --hasta escenas --exportar-json ./carpeta/script.json`, y después `--proyecto <id> --contenido-dir ./carpeta`.
-- **Edición editorial.** En el paso Video eliges el estilo *Clásico*, *Editorial* o *Intenso*. El editorial aplica efectos sobrios de documental; cada uno se activa o desactiva por separado:
-  - **Subtítulos palabra por palabra:** la palabra que suena se ilumina y la palabra clave de cada frase va en color.
-  - **Rótulos:** cifras, fechas y nombres aparecen con una barra y un fundido.
-  - **Sonido:** whoosh en los cortes, un golpe grave en las revelaciones y la música baja sola cuando habla la voz.
-  - **Ritmo de entrada:** en los primeros 30 s hay cortes cada unos 3 s, alternando el encuadre de la misma imagen.
-  - **Zoom** en las revelaciones.
-  - **Color unificado:** cuatro tonos a elegir, con viñeta y grano fino.
-  - **Gancho** sobreimpreso en los primeros 2 s.
-
-  - **Efectos en momentos clave:** se aplican solo donde Claude marca un momento fuerte, y como mucho uno cada 20 s, para que no le quiten protagonismo al mensaje:
-    - **Cita destacada:** la frase más potente aparece en grande sobre la imagen oscurecida y desenfocada.
-    - **Pausa dramática:** tras un remate, la imagen se congela 1 s sin color.
-    - **Destello** en las revelaciones.
-    - **Blanco y negro cálido** en los tramos que narran otra época.
-
-  Claude marca las palabras clave, los datos, las revelaciones y el gancho en una sola pasada (unos segundos). Esa pasada se guarda en caché, así que cambiar colores o volúmenes no vuelve a llamarlo. Todo se hace con ffmpeg y libass, sin Remotion.
-
-  Los textos que escribe Claude (rótulos y gancho) salen siempre en el idioma de la narración.
-
-  Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/whoosh.(wav|mp3)` y `golpe.(wav|mp3)`. Si no los hay, se generan solos.
-- **Edición intensa.** Es el estilo para redes, lleno de efectos. Usa lo mismo que el editorial, pero con más densidad (más palabras clave, rótulos y momentos, y cortes en todo el video), y añade:
-  - **Subtítulos en mayúsculas:** la palabra que suena crece.
-  - **Impacto en las revelaciones:** la palabra clave aparece gigante en el centro, con temblor de cámara y desfase de color.
-  - **Flash** en los cambios de imagen.
-  - **Barra de progreso** arriba.
-  - **Franjas de cine** en las citas.
-  - **Más sonido:** un "pop" en los rótulos y una subida de tensión antes de cada revelación.
-
-  Impacto, flash y barra de progreso se activan por separado. Al haber más cortes, el montaje tarda más.
-- **Miniatura.** Es el último paso, aunque se puede abrir en cualquier momento; si ya tienes la miniatura, súbela desde el principio. Claude propone de 1 a 5 conceptos, cada uno con el texto de la miniatura y el prompt listo para Flow. Si quieres poner el texto tú, también da la versión sin texto, para Canva.
-
-  Para proponerlos se basa en el guion, el estilo de Escenas, hasta 4 imágenes del proyecto y, si la subes, una **miniatura de referencia**, de la que copia el estilo y no el contenido. También indica qué imagen de escena conviene usar como referencia en Flow. Luego generas la miniatura, la subes, y queda como portada en Mis videos y lista para descargar. No usa APIs de imagen, solo Claude CLI (~1 min).
-- **Voz clonada (opcional).** En el paso Voz puedes elegir "Voz clonada" en vez de las voces de Microsoft. La genera un servidor [Clonar-voz](https://github.com/jceronch1/Clonar-voz) (Qwen3-TTS con llama.cpp, en CPU o GPU) que puede estar en esta máquina o en otra, por ejemplo un PC con GPU. Se conecta con `estudio_voz_clonada_url` en `config.toml`. Desde el mismo panel grabas o subes 10–15 s de voz y queda en la biblioteca.
-
-  El guion se pide por bloques de unas pocas frases que se guardan en caché. Por eso cambiar los planos o la velocidad, o reintentar tras un fallo, no vuelve a sintetizar lo que ya existe. Los tiempos de los subtítulos se reparten dentro de cada bloque por número de caracteres, con un desfase de ±0,5 s. En CPU tarda de 5 a 12 veces lo que dura el audio (medido en un i3 de 4 hilos); con GPU es casi al momento. Úsala solo con tu voz o con voces que tengan permiso.
-- **Mi audio (narración propia).** En el paso Voz, la opción "Mi audio" sirve para subir una narración ya grabada: tu voz o una generada aparte con Clonar-voz (WAV, MP3, M4A, OGG, FLAC…). Whisper saca el tiempo de cada palabra para los subtítulos y los planos.
-
-  Si el guion del proyecto coincide con lo que se oye (al menos un 60 %), los subtítulos usan el texto del guion con los tiempos del audio; si no hay guion, usan la transcripción. Tarda unos 8 s por minuto de audio en CPU (14,5 min en menos de 2 min).
-- **Asistente** (la burbuja de abajo a la derecha): es un chat que responde con tu cuenta de Claude. Antes de cada pregunta recibe el estado del momento (proyecto abierto, etapas, errores, registro) y puede leer el código para explicar un error. No puede leer `config.toml` ni credenciales. Está en `app/services/estudio/asistente.py`.
-- **Mis videos**: cada tarjeta tiene portada y las acciones Ver, Descargar, Editar, Duplicar, Renombrar y Borrar. Duplicar copia los ajustes y los recursos, pero no lo generado.
-
-- **Prompts maestros** (menú superior). Es una biblioteca de estilos: subes cualquier prompt maestro (.docx, .txt, .md o texto pegado) y Claude lo desglosa en una ficha. La ficha recoge los pasos y lo que pregunta cada uno, lo que entrega, el formato y la duración, si trae narración, los idiomas, los bloques fijos, las reglas clave y cómo encaja en el Estudio. Se guarda en `storage/estudio/maestros/<id>/` con el texto original intacto y, si el .docx trae una imagen de ejemplo, esa imagen como portada. Puedes renombrarlo, añadir notas, poner tu propia portada, volver a desglosarlo o borrarlo.
-- **Crear contenido** (botón en la ficha). Claude ejecuta el prompt maestro paso a paso, como en un chat, pero con botones: cada paso muestra sus opciones (la recomendada lleva estrella) y también puedes escribir libremente o pedir cambios. Si escribes el tema al empezar, se responde solo cuando el prompt lo pregunte. En modo **Automático** Claude elige la opción recomendada en cada paso hasta el final; se puede parar en cualquier momento. Al terminar, Claude ordena los **entregables**: el guion, las escenas con su prompt de imagen y de video, las miniaturas y los bloques. Se copian uno a uno o se descargan como `guion.txt`, prompts de imagen y de video en `.txt` (separados por línea en blanco) y `script.json` (el formato de la extensión de Flow). Cada creación queda en "Mis creaciones" de la ficha (`storage/estudio/maestros/<id>/creaciones/`). 
-- **Crear video en el Estudio** (tarjeta en la creación). Crea un video ya relleno con las escenas del prompt maestro y sus prompts, el formato y la asignación por escenas. En el paso Escenas solo se colocan sobre la voz: por palabras si cada escena trae su narración, o por su duración si no. Para la narración hay cuatro opciones:
-  - **Su guion**: la narración del prompt maestro, tal cual.
-  - **Guion demostración**: Claude escribe una línea por escena contando lo que se ve.
-  - **Guion libre**: Claude redacta un guion del tema, editable en el paso Guion.
-  - **Sin voz**: sin locución ni subtítulos; suena el audio de los propios clips, útil para ASMR o diálogos generados en Veo.
-
-  Después generas la voz, subes en Contenido lo que hagas en Flow (cada archivo con su número de escena) y montas el video.
-
-Código: `MoneyPrinterTurbo/app/services/estudio/` (una etapa por archivo, el grafo está en `grafo.py`), `app/services/claude_cli.py` y `app/controllers/v1/estudio.py` (rutas `/api/v1/estudio/*`).
-
-**Requisitos:**
-- Claude Code instalado y con sesión iniciada (`claude` y después `/login`).
-- `llm_provider` no hace falta cambiarlo: el Estudio siempre usa el CLI.
-- Un ffmpeg con libass para el acabado rápido. Los de apt/Docker y el build de gyan.dev lo traen; si no está, se usa el clásico.
-
-**Arrancar en local:**
-```bash
-cd MoneyPrinterTurbo && python main.py        # backend :8080
-cd estudio-ui && npm install && npm run dev   # estudio  :3100
-```
-
-**CLI (para Hermes, n8n o cron):**
-```bash
-python estudio_cli.py --titulo "Mundial 2026" --material-archivo notas.txt \
-    --recursos-dir ./mis_recursos --minutos 12 --out ./videos
-python estudio_cli.py --titulo "X" --guion-archivo guion.txt --recursos-dir ./media   # tu guion tal cual
-python estudio_cli.py --titulo "X" --material-archivo notas.txt --hasta guion         # parar para revisar en la web
-python estudio_cli.py --proyecto <id> --musica ""                                      # seguir o retocar: solo rehace lo cambiado
-```
-Imprime `PROYECTO=<id>` al empezar y sale con código 0 si todo va bien y 1 si falla. Usa las mismas variables `MPT_API_BASE` y `MPT_BASIC_AUTH` que `zenn_cli.py`. Hay un perfil de ejemplo en `estudio_perfil.example.json`.
-
----
-
-## CLI de automatización (`zenn_cli.py`)
-
-Script de línea de comandos para generar videos **sin abrir el navegador**, ideal para
-automatización, cron o que lo dispare otro agente/app (ej. **Hermes**, n8n). Usa el mismo
-REST del backend, así que el resultado es idéntico al de la web. **Cubre las 3 formas de generar:**
-
-| Modo | Qué hace | Costo |
-|---|---|---|
-| `--modo kie` (default) | Video estilo Zenn con imágenes generadas por IA (Kie AI) | 💰 **Gasta créditos de Kie por imagen** |
-| `--modo local` | Video estilo Zenn con TUS imágenes (sube una carpeta, orden alfabético) | Gratis |
-| `--modo video` | Video clásico con clips de Pexels / Pixabay / locales | Gratis |
-
-> ⚠️ **El modo `kie` exige `--max-images N` obligatorio** (o `max_images` en el
-> perfil): sin tope explícito el CLI se niega a ejecutar y falla con error, sin
-> tocar la API. Es un seguro para que una automatización (agente IA, cron, n8n)
-> no lance por accidente una generación sin límite que queme créditos. Si
-> integras el CLI con un agente, dale la regla de nunca usar modo kie sin
-> confirmación humana del tope.
-
-### Requisitos
-
-```bash
-pip install requests        # única dependencia del CLI
-```
-
-### Configuración por entorno
-
-```bash
-# URL base de la API (default: el VPS público)
-export MPT_API_BASE="https://virales.saraviamtech.com/api/mpt/v1"
-# o local:  export MPT_API_BASE="http://localhost:8080/api/v1"
-
-# Solo si activaste auth básica en Traefik
-export MPT_BASIC_AUTH="usuario:password"
-```
-
-### Ejemplos
-
-```bash
-# 1) Kie AI con un guion propio y tope de imágenes (recomendado fijar max-images)
-python zenn_cli.py --tema "Mundial 2026" --guion guion.txt --max-images 207 --out ./videos
-
-# 2) Con un perfil guardado (voz, subtítulos, estilo, etc.) — ver perfil_zenn.example.json
-python zenn_cli.py --perfil perfil_zenn.json --tema "Mundial 2026" --guion guion.txt
-
-# 3) Imágenes locales: sube y ordena alfabéticamente la carpeta
-python zenn_cli.py --modo local --tema "Mi video" --guion guion.txt --imagenes-dir ./mis_imagenes
-
-# 4) Video clásico con clips de Pexels
-python zenn_cli.py --modo video --tema "Datos del espacio" --fuente-clips pexels --terminos "space,stars"
-
-# 5) Por lotes: un tema por línea, el backend genera cada guion
-python zenn_cli.py --perfil perfil_zenn.json --lote temas.txt --parrafos 30 --out ./videos
-```
-
-### Perfil de configuración
-
-Guarda tu combinación favorita (voz, subtítulos, estilo, etc.) en un JSON y reutilízala con
-`--perfil`. Cualquier flag CLI **sobreescribe** lo que venga en el perfil. Plantilla completa
-en [`perfil_zenn.example.json`](perfil_zenn.example.json). Cópiala a `perfil_zenn.json` y edítala.
-
-### Controles disponibles (1:1 con la web)
-
-`--voz`, `--voz-velocidad`, `--voz-volumen`, `--sin-voz`, `--musica` (`random`, `""` sin música,
-o el nombre de un MP3 subido al servidor, ej. `micancion.mp3`), `--musica-volumen`,
-`--sin-subtitulos`, `--sub-posicion` (`top|center|bottom|custom`), `--sub-posicion-pct`
-(0-100, con `custom`), `--sub-fondo` / `--sub-sin-fondo` (caja/sombra detrás del texto),
-`--sub-fondo-redondeado`, `--fuente`, `--tam-fuente`, `--color-texto`,
-`--color-contorno`, `--grosor-contorno`, `--aspect`, `--codec`, `--tematica`, `--estilo`,
-`--min-dur`, `--max-images`, `--idioma`, `--parrafos`, `--instrucciones`, `--capitulos`,
-`--timeout`. Modo video además: `--fuente-clips`, `--terminos`, `--concat`, `--transicion`, `--dur-clip`.
-
-Ver todo con `python zenn_cli.py --help`.
-
-### Integración con Hermes (u otro agente)
-
-El CLI imprime el progreso por stdout y termina con código `0` (éxito) o `1` (error), así que
-cualquier orquestador lo invoca como un comando normal:
-
-1. Prepara un `perfil_zenn.json` con tu configuración base.
-2. Que Hermes ejecute el comando, p. ej.:
-   `python zenn_cli.py --perfil perfil_zenn.json --tema "{{tema}}" --max-images 207 --out /ruta/salida`
-3. El MP4 final queda en la carpeta `--out` con nombre `tema-slug-<taskid>.mp4`.
-4. Para varios videos de una vez, usa `--lote temas.txt` (un tema por línea).
-
-> El `--timeout` por defecto es 2 h (no se corta como el navegador a los 40 min). Si generas
-> muchas imágenes con Kie, el render puede tardar bastante; el CLI espera hasta que termina.
-
----
-
-## Despliegue en producción (VPS)
-
-Guía completa en **[DEPLOY.md](DEPLOY.md)** (Portainer + Traefik + Docker Swarm).
-Resumen: datos persistentes en `/root/mpt-data/` (`config.toml`, `storage/`,
-`songs/`), imágenes construidas en el VPS, auth básica en Traefik. Para actualizar:
-`git pull` + rebuild + `docker service update --force`; si cambió `docker-stack.yml`,
-re-desplegar el stack.
-
----
-
-## Variables de configuración importantes
-
-| Parámetro | Descripción |
-|---|---|
-| `openai_api_key` | Clave de OpenAI para generación de guiones |
-| `pexels_api_keys` | Array de keys de Pexels |
-| `pixabay_api_keys` | Array de keys de Pixabay |
-| `llm_provider` | Proveedor LLM: `openai`, `ollama`, `moonshot`, etc. |
-| `openai_model_name` | Modelo a usar (default: `gpt-4o-mini`) |
 
 ---
 
 ## Licencia
 
-© Saraviamtech. Todos los derechos reservados sobre el Estudio, las interfaces y la marca.
+© Saraviamtech. Todos los derechos reservados sobre el Estudio, sus interfaces y la marca.
 Incluye componentes de código abierto bajo licencia MIT; sus avisos están en `MoneyPrinterTurbo/LICENSE`.
 
 ---
