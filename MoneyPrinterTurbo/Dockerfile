@@ -1,5 +1,6 @@
 # Use an official Python runtime as a parent image
-FROM python:3.11-slim-bullseye
+# bookworm: bullseye salio de soporte (2026-08) y sus mirrors devuelven 404
+FROM python:3.11-slim-bookworm
 
 # Set the working directory in the container
 WORKDIR /MoneyPrinterTurbo
@@ -9,47 +10,19 @@ RUN chmod 777 /MoneyPrinterTurbo
 
 ENV PYTHONPATH="/MoneyPrinterTurbo"
 
-# Install system dependencies with domestic mirrors first for stability
-RUN echo "deb http://mirrors.aliyun.com/debian bullseye main" > /etc/apt/sources.list && \
-    echo "deb http://mirrors.aliyun.com/debian-security bullseye-security main" >> /etc/apt/sources.list && \
-    ( \
-        for i in 1 2 3; do \
-            echo "Attempt $i: Using Aliyun mirror"; \
-            apt-get update && apt-get install -y --no-install-recommends \
-                git \
-                imagemagick \
-                ffmpeg && break || \
-            echo "Attempt $i failed, retrying..."; \
-            if [ $i -eq 3 ]; then \
-                echo "Aliyun mirror failed, switching to Tsinghua mirror"; \
-                sed -i 's/mirrors.aliyun.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \
-                sed -i 's/mirrors.aliyun.com\/debian-security/mirrors.tuna.tsinghua.edu.cn\/debian-security/g' /etc/apt/sources.list && \
-                ( \
-                    apt-get update && apt-get install -y --no-install-recommends \
-                        git \
-                        imagemagick \
-                        ffmpeg || \
-                    ( \
-                        echo "Tsinghua mirror failed, switching to default Debian mirror"; \
-                        sed -i 's/mirrors.tuna.tsinghua.edu.cn/deb.debian.org/g' /etc/apt/sources.list && \
-                        sed -i 's/mirrors.tuna.tsinghua.edu.cn\/debian-security/security.debian.org/g' /etc/apt/sources.list; \
-                        apt-get update && apt-get install -y --no-install-recommends \
-                            git \
-                            imagemagick \
-                            ffmpeg; \
-                    ); \
-                ); \
-            fi; \
-            sleep 5; \
-        done \
-    ) && rm -rf /var/lib/apt/lists/*
+# Install system dependencies (mirror oficial de Debian)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        imagemagick \
+        ffmpeg \
+        curl \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Estudio: CLI de Claude Code (guion, catalogo visual y asignacion con la
 # suscripcion, sin API key). La sesion se persiste con CLAUDE_CONFIG_DIR en un
 # volumen, o se pasa CLAUDE_CODE_OAUTH_TOKEN (sale de `claude setup-token`).
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://claude.ai/install.sh | bash
+RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Fix security policy for ImageMagick
@@ -58,10 +31,8 @@ RUN sed -i '/<policy domain="path" rights="none" pattern="@\*"/d' /etc/ImageMagi
 # Copy only the requirements.txt first to leverage Docker cache
 COPY requirements.txt ./
 
-# Install Python dependencies with domestic mirrors first and retry logic
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --retries 3 --timeout 60 -r requirements.txt || \
-    pip install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/ --trusted-host mirrors.tuna.tsinghua.edu.cn --retries 3 --timeout 60 -r requirements.txt || \
-    pip install --no-cache-dir --retries 3 --timeout 60 -r requirements.txt
+# Install Python dependencies (PyPI oficial; el VPS esta en Europa)
+RUN pip install --no-cache-dir --retries 3 --timeout 60 -r requirements.txt
 
 # Now copy the rest of the codebase into the image
 COPY . .
