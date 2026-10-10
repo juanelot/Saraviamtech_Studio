@@ -45,6 +45,9 @@ PAGO_POR_USO = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL
 HERRAMIENTAS_VETADAS = ("Bash", "Edit", "Write", "NotebookEdit", "WebFetch",
                         "WebSearch", "Task", "Agent", "Read", "Glob", "Grep")
 
+SISTEMA_BASE = ("You work inside a video studio app. Answer only with what is asked, "
+                "in the requested format and language, with no preamble.")
+
 SIN_VENTANA = {}
 if os.name == "nt":
     SIN_VENTANA = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
@@ -129,20 +132,27 @@ def ejecutar_sobre(prompt: str, modelo=None, esfuerzo=None, tiempo_max_s=None,
         # En Windows un salto de linea parte la orden de claude.cmd.
         raise ValueError("claude_cli: el prompt de sistema debe ir en una sola linea")
 
+    # Modo ligero: sin el prompt de sistema de Claude Code, sin herramientas que no
+    # se usan, sin hooks/plugins/skills del usuario. Medido: ~14.000 tokens de
+    # contexto fijo por llamada pasan a ~200.
     orden = [localizar(), "-p",
              "--model", modelo,
              "--effort", esfuerzo,
              "--output-format", "json",
-             "--strict-mcp-config"]
+             "--strict-mcp-config",
+             "--setting-sources", "",
+             "--tools", ",".join(permitidas),
+             "--system-prompt", SISTEMA_BASE + (" " + sistema if sistema else "")]
     if permitidas:
         orden += ["--allowedTools", ",".join(permitidas)]
     vetadas = [h for h in HERRAMIENTAS_VETADAS if h not in permitidas] + list(reglas_vetadas)
     if vetadas:
         orden += ["--disallowedTools", ",".join(vetadas)]
-    if sistema:
-        orden += ["--append-system-prompt", sistema]
     if reanudar:
         orden += ["--resume", reanudar]
+    elif not permitidas and not sistema:
+        # Llamadas sueltas (guion, escenas, edicion...): nadie las reanuda.
+        orden += ["--no-session-persistence"]
 
     logger.info(f"claude_cli: modelo={modelo} esfuerzo={esfuerzo} timeout={tiempo_max_s}s")
     proceso = subprocess.Popen(

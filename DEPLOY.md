@@ -65,7 +65,7 @@ docker service update --force mpt_api
 docker service update --force mpt_ui
 ```
 
-## Estudio (estudio.saraviamtech.com)
+## Estudio (studio.saraviamtech.com)
 
 Es un servicio más del stack. Comparte el backend `api` y usa la misma auth básica.
 
@@ -75,7 +75,7 @@ docker build -t mpt-api:latest ./MoneyPrinterTurbo          # ya incluye el CLI 
 docker build -t estudio-ui:latest --build-arg MPT_API_URL=http://api:8080 ./estudio-ui
 ```
 
-1. **DNS:** crea un registro A `estudio.saraviamtech.com` → IP del VPS. Si quieres otro dominio, cambia la label `Host(...)` en `docker-stack.yml`.
+1. **DNS:** crea un registro A `studio.saraviamtech.com` → IP del VPS. Si quieres otro dominio, cambia la label `Host(...)` en `docker-stack.yml`.
 2. **Sesión de Claude**, una sola vez. Hay dos formas:
    - Iniciar sesión dentro del contenedor: `docker exec -it $(docker ps -qf name=mpt_api) claude` y después `/login`. La sesión queda guardada en `/root/mpt-data/claude`.
    - Usar un token: en tu PC ejecuta `claude setup-token` y pon el resultado en `CLAUDE_CODE_OAUTH_TOKEN` (variable de entorno del servicio `api`).

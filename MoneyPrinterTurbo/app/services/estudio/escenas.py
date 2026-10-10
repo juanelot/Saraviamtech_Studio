@@ -12,9 +12,10 @@ Salidas:
   - escenas/script.json en el formato EXACTO de la extension:
         {"scenes": [{"scene_number", "image_prompt", "video_prompt", "narration"}]}
 
-Agrupacion: planos consecutivos de la voz hasta llegar a `segundos` (un clip de
-Flow dura 8 s). Una escena nunca parte un plano, asi la imagen cambia justo
-cuando cambia la frase. `segundos` = 0 -> una escena por plano.
+Agrupacion: escenas de `segundos` (+-15 %) cortadas ENTRE palabras con los
+tiempos reales de la voz, prefiriendo pausas y puntuacion dentro de esa ventana
+(antes se juntaban frases enteras y 4 s salian de 4 a 10 s). `segundos` = 0 ->
+una escena por plano.
 
 Escenas FIJAS (`fijas`, se lee con .get; lo pone "Crear video" de un prompt
 maestro): las escenas y sus prompts vienen hechos. Solo se calcula cuando empieza
@@ -59,32 +60,97 @@ def huella(ctx):
     return {"aspecto": ctx.params_de("render").get("aspecto")}
 
 
-def agrupar(planos, segundos):
+TOLERANCIA = 0.15   # una escena de `segundos` dura entre -15 % y +15 % (4 s -> 3.4-4.6 s)
+
+
+def _palabras_de_planos(planos, palabras):
+    """[(inicio, fin, texto, i_plano)] de cada palabra dicha, en orden. Tiempos de
+    palabras.json si cuadran palabra a palabra con los planos; si no, repartidos
+    dentro de cada plano."""
+    total = sum(len(x["texto"].split()) for x in planos)
+    exactas = palabras and len(palabras) == total
+    salida, k = [], 0
+    for x in planos:
+        trozos = x["texto"].split()
+        paso = (x["fin"] - x["inicio"]) / max(1, len(trozos))
+        for j, w in enumerate(trozos):
+            if exactas:
+                a, b, t = palabras[k]
+                salida.append((float(a), float(b), str(t), x["i"]))
+            else:
+                salida.append((x["inicio"] + j * paso, x["inicio"] + (j + 1) * paso, w, x["i"]))
+            k += 1
+    return salida
+
+
+def agrupar(planos, segundos, palabras=None):
+    """Escenas de `segundos` (+-TOLERANCIA). Se corta ENTRE palabras: dentro de la
+    ventana gana el hueco con pausa o puntuacion mas cercano al objetivo, asi la
+    imagen cambia cada ~N s sin cortar una palabra. `segundos` = 0 -> una escena
+    por plano."""
     if not planos:
         return []
-    grupos, actual = [], []
-    for x in planos:
-        actual.append(x)
-        if segundos <= 0 or (actual[-1]["fin"] - actual[0]["inicio"]) >= segundos:
-            grupos.append(actual)
-            actual = []
-    if actual:
-        if grupos and (actual[-1]["fin"] - actual[0]["inicio"]) < segundos / 2:
-            grupos[-1].extend(actual)
+    if segundos <= 0:
+        grupos = [(x["inicio"], x["fin"], [x["i"]], x["texto"], None) for x in planos]
+        return _escenas_de(grupos)
+    pal = _palabras_de_planos(planos, palabras)
+    if len(pal) < 2:
+        return _escenas_de([(planos[0]["inicio"], planos[-1]["fin"], [x["i"] for x in planos],
+                             " ".join(x["texto"] for x in planos), 0)])
+
+    def hueco(k):  # instante del corte antes de la palabra k
+        return (pal[k - 1][1] + pal[k][0]) / 2
+
+    def nota(k, objetivo, dur):
+        """Pausa, puntuacion y fin de frase suman; alejarse del objetivo resta."""
+        previa = pal[k - 1][2].rstrip("\"'”’»)")
+        bonus = min(max(0.0, pal[k][0] - pal[k - 1][1]), 0.4) / 0.4 * 0.3
+        if previa.endswith((".", "?", "!", "…")):
+            bonus += 0.35
+        elif previa.endswith((",", ";", ":")):
+            bonus += 0.2
+        if pal[k - 1][3] != pal[k][3]:
+            bonus += 0.15
+        return bonus - abs(hueco(k) - objetivo) / (dur * TOLERANCIA) * 0.5
+
+    inicio, fin = planos[0]["inicio"], planos[-1]["fin"]
+    cortes, t = [0], inicio
+    while True:
+        resto = fin - t
+        if resto <= segundos * (1 + TOLERANCIA):
+            break
+        # Lo que queda no da para escena entera + otra digna: dos mitades.
+        dur = resto / 2 if resto < segundos * (2 - TOLERANCIA) else segundos
+        objetivo = t + dur
+        libres = range(cortes[-1] + 1, len(pal))
+        ventana = [k for k in libres if abs(hueco(k) - objetivo) <= dur * TOLERANCIA]
+        if ventana:
+            k = max(ventana, key=lambda k: nota(k, objetivo, dur))
+        elif libres:
+            k = min(libres, key=lambda k: abs(hueco(k) - objetivo))
         else:
-            grupos.append(actual)
+            break
+        cortes.append(k)
+        t = hueco(k)
+
+    grupos = []
+    for n, k in enumerate(cortes):
+        hasta = cortes[n + 1] if n + 1 < len(cortes) else len(pal)
+        a = inicio if n == 0 else hueco(k)
+        b = fin if hasta == len(pal) else hueco(hasta)
+        trozo = pal[k:hasta]
+        grupos.append((a, b, sorted({w[3] for w in trozo}), " ".join(w[2] for w in trozo), k))
+    return _escenas_de(grupos)
+
+
+def _escenas_de(grupos):
     escenas = []
-    for n, g in enumerate(grupos, start=1):
-        escenas.append({
-            "scene_number": n,
-            "inicio": g[0]["inicio"],
-            "fin": g[-1]["fin"],
-            "duracion": round(g[-1]["fin"] - g[0]["inicio"], 2),
-            "planos": [x["i"] for x in g],
-            "narration": " ".join(x["texto"] for x in g).strip(),
-            "image_prompt": "",
-            "video_prompt": "",
-        })
+    for n, (a, b, idx, texto, palabra) in enumerate(grupos, start=1):
+        e = {"scene_number": n, "inicio": round(a, 3), "fin": round(b, 3), "duracion": round(b - a, 2),
+             "planos": idx, "narration": texto.strip(), "image_prompt": "", "video_prompt": ""}
+        if palabra is not None:
+            e["palabra"] = palabra  # primera palabra dicha (la usa narraciones_exactas)
+        escenas.append(e)
     return escenas
 
 
@@ -324,12 +390,16 @@ def narraciones_exactas(escenas, planos, texto):
     guion = texto.split()
     if not guion or not escenas:
         return
-    texto_planos = {x["i"]: x["texto"] for x in planos}
-    dichas, fronteras = [], []
-    for e in escenas:
-        fronteras.append(len(dichas))
-        for i in e["planos"]:
-            dichas += texto_planos.get(i, "").split()
+    if all("palabra" in e for e in escenas):  # escenas cortadas entre palabras (agrupar)
+        dichas = [w for x in planos for w in x["texto"].split()]
+        fronteras = [e["palabra"] for e in escenas]
+    else:
+        texto_planos = {x["i"]: x["texto"] for x in planos}
+        dichas, fronteras = [], []
+        for e in escenas:
+            fronteras.append(len(dichas))
+            for i in e["planos"]:
+                dichas += texto_planos.get(i, "").split()
     sm = difflib.SequenceMatcher(None, [_norm(w) for w in dichas], [_norm(w) for w in guion], autojunk=False)
     mapa = {}
     for b in sm.get_matching_blocks():
@@ -393,7 +463,8 @@ def ejecutar(ctx):
         escenas = fijas_en_tiempo(fijas, planos, float(voz.get("duracion") or planos[-1]["fin"]),
                                   _tiempos_palabras(ctx, planos))
     else:
-        escenas = agrupar(planos, float(p["segundos"] or 0))
+        escenas = agrupar(planos, float(p["segundos"] or 0),
+                          almacen.leer_json(ctx.dir("voz", "palabras.json", crear=False)))
     carpeta = ctx.dir("escenas")
     # Un solo formato para imagenes y montaje: el del paso Video (16:9 por defecto).
     aspecto = ctx.params_de("render").get("aspecto") or "16:9"
@@ -402,6 +473,8 @@ def ejecutar(ctx):
         # La narracion es el texto EXACTO del guion (con puntuacion), cortado aqui;
         # Claude solo escribe los prompts.
         narraciones_exactas(escenas, planos, guion)
+    for e in escenas:
+        e.pop("palabra", None)
 
     if p["generar"] in ("imagenes", "imagenes_videos") and not fijas:
         ruta_base = os.path.join(carpeta, "base.json")

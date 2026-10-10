@@ -121,12 +121,12 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                       formato={(x) => `${Math.round(x * 100)}%`} />
                   </Campo>
                 )}
-                <Interruptor valor={r.ed_ritmo !== false} onChange={s("ed_ritmo")}
+                <Interruptor valor={r.ed_ritmo === true} onChange={s("ed_ritmo")}
                   titulo={intenso ? "Ritmo" : "Ritmo de entrada"} detalle={intenso
-                    ? "Cortes cada ~2 s al principio y cada ~3 s el resto del video, alternando el encuadre de la misma imagen."
-                    : "En los primeros 30 s, cortes cada ~3 s alternando el encuadre de la misma imagen."} />
-                <Interruptor valor={r.ed_zoom !== false} onChange={s("ed_zoom")}
-                  titulo="Zoom en las revelaciones" detalle="La imagen se acerca un poco justo en los momentos clave." />
+                    ? "Un salto de encuadre a media imagen en todo el video (apagado: solo zoom suave)."
+                    : "Un salto de encuadre a media imagen en los primeros 30 s (apagado: solo zoom suave)."} />
+                <Interruptor valor={r.ed_zoom === true} onChange={s("ed_zoom")}
+                  titulo="Zoom en las revelaciones" detalle="Salto de acercamiento justo en los momentos clave (apagado: solo zoom suave)." />
                 <Interruptor valor={r.ed_color !== false} onChange={s("ed_color")}
                   titulo="Color unificado" detalle="Mismo tono, vineta leve y grano fino: todas las imagenes parecen de la misma pelicula." />
                 {r.ed_color !== false && (

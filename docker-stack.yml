@@ -37,7 +37,7 @@ services:
       resources:
         limits:
           cpus: "3"
-          memory: 4G
+          memory: 5G
 
   ui:
     image: mpt-ui:latest
@@ -90,7 +90,7 @@ services:
           memory: 1G
       labels:
         - traefik.enable=true
-        - traefik.http.routers.estudio.rule=Host(`estudio.saraviamtech.com`)
+        - traefik.http.routers.estudio.rule=Host(`studio.saraviamtech.com`)
         - traefik.http.routers.estudio.entrypoints=websecure
         - traefik.http.routers.estudio.tls.certresolver=letsencryptresolver
         - traefik.http.services.estudio.loadbalancer.server.port=3100

@@ -55,8 +55,8 @@ OPCIONES = {
     "ed_modelo": "sonnet",
     "ed_esfuerzo": "low",
     # etapa 2
-    "ed_ritmo": True,             # primeros segundos con subcortes cada ~3 s
-    "ed_zoom": True,              # acercamiento en las revelaciones
+    "ed_ritmo": False,            # salto de encuadre a media imagen (apagado: el usuario solo quiere el zoom suave)
+    "ed_zoom": False,             # salto de encuadre en las revelaciones (apagado, idem)
     "ed_color": True,
     "ed_look": "natural",         # natural | calido | cine | frio
     "ed_gancho": True,
@@ -74,9 +74,10 @@ OPCIONES = {
 }
 # Lo que cambia entre estilos (el resto de la maquinaria es comun).
 PERFILES = {
-    "editorial": {"espacio_momentos": 20.0, "espacio_rotulos": 9.0, "ritmo_hasta": 30.0,
+    # ritmo_min: solo se trocean planos mas largos (con escenas de ~4 s la imagen ya cambia sola)
+    "editorial": {"espacio_momentos": 20.0, "espacio_rotulos": 9.0, "ritmo_hasta": 30.0, "ritmo_min": 6.0,
                   "ritmo_pieza": 3.0, "ritmo_pieza_resto": None, "espacio_whoosh": 2.2, "max_citas": 2},
-    "intenso": {"espacio_momentos": 9.0, "espacio_rotulos": 5.0, "ritmo_hasta": 30.0,
+    "intenso": {"espacio_momentos": 9.0, "espacio_rotulos": 5.0, "ritmo_hasta": 30.0, "ritmo_min": 4.8,
                 "ritmo_pieza": 2.2, "ritmo_pieza_resto": 3.2, "espacio_whoosh": 0.9, "max_citas": 3},
 }
 ESPACIO_FLASH = 3.5
@@ -86,8 +87,9 @@ DUR_PAUSA = 1.1
 FILTRO_PASADO = "hue=s=0.08,colorbalance=rs=0.08:gs=0.03:bs=-0.07:rm=0.05:bm=-0.05"
 FILTRO_PAUSA = "hue=s=0.2,eq=brightness=-0.03:contrast=1.05"
 PIEZA_MIN_S = 1.2
-ENCUADRE_ALT = 1.12    # encuadre mas cerrado de los subcortes de ritmo
-ENCUADRE_REVELACION = 1.16
+# Limites de encuadre (1.12/1.16 + zoom reiniciado en cada pieza "bombeaba" al inicio).
+ENCUADRE_SALTO = 1.06  # el UNICO salto de ritmo de un plano (siempre hacia el lado del zoom)
+ENCUADRE_REVELACION = 1.10
 
 # Ajuste de color comun + vineta leve + grano fino (temporal) para que imagenes de
 # distintas fuentes parezcan de la misma pelicula.
@@ -721,14 +723,18 @@ def lineas_y_marcas(ctx, voz, p):
 
 def subcortes(planos, lineas, marcas_, opts):
     """Parte los planos en PIEZAS (mismo recurso, otro encuadre o efecto):
-      - ritmo: en los primeros segundos (perfil "ritmo_hasta"), planos largos en piezas
-        de ~3 s alternando encuadre normal y cerrado; el estilo intenso sigue cortando
-        (piezas de "ritmo_pieza_resto") el resto del video;
-      - zoom: en cada revelacion, lo que sigue entra mas cerca (punch-in);
+      - ritmo: en los primeros segundos (perfil "ritmo_hasta"), un plano largo da UN
+        salto de encuadre a media imagen (mas cerca, o mas lejos si el plano se aleja);
+        el estilo intenso lo hace en todo el video;
+      - zoom: en la revelacion, lo que sigue entra mas cerca (punch-in);
       - pausa: al terminar un remate, 1 s congelado y desaturado;
       - pasado: los planos cuyo centro cae en un tramo de otra epoca van en B/N.
+    UNA direccion por plano ("acercar"): o todo acerca o todo aleja, nunca las dos.
+    Un plano con revelacion o pausa siempre acerca; el resto alterna entre planos.
+    Como mucho UN salto de encuadre por plano (la revelacion manda sobre el ritmo);
+    despues sigue el zoom lento.
     Cada pieza: dict del plano + inicio/fin propios, "encuadre", "desde" (segundos
-    desde el inicio del plano, para el offset de los videos), "efecto" y "pasado"."""
+    desde el inicio del plano, para el offset de los videos), "efecto", "pasado" y "acercar"."""
     revel = sorted(lineas[i][0] for i in _indices(marcas_.get("revelaciones"), len(lineas))) \
         if opts["ed_zoom"] else []
     mom = momentos(lineas, marcas_, opts)
@@ -737,37 +743,41 @@ def subcortes(planos, lineas, marcas_, opts):
         a, b = float(x["inicio"]), float(x["fin"])
         centro = (a + b) / 2
         pasado = any(ra <= centro <= rb for ra, rb in mom["pasado"])
+        revel_aqui = [t for t in revel if a + PIEZA_MIN_S <= t <= b - PIEZA_MIN_S]
+        pausas_aqui = [t for t in mom["pausas"] if t - a >= 0.6 and min(t + DUR_PAUSA, b) - t >= 0.6]
+        acercar = bool(revel_aqui or pausas_aqui) or x["i"] % 2 == 0
         cortes = [(a, 1.0, None)]
         pf = opts["perfil"]
         pieza = pf["ritmo_pieza"] if a < pf["ritmo_hasta"] else pf["ritmo_pieza_resto"]
-        if opts["ed_ritmo"] and pieza and b - a > pieza + 0.4:
-            n = int(-(-(b - a) // pieza))
-            paso = (b - a) / n
-            # Editorial: solo se corta dentro del tramo inicial; la ultima pieza sigue hasta el final del plano.
-            hasta = float("inf") if pf["ritmo_pieza_resto"] else pf["ritmo_hasta"]
-            cortes = [(a + k * paso, 1.0 if k % 2 == 0 else ENCUADRE_ALT, None) for k in range(n)
-                      if k == 0 or a + k * paso < hasta]
-        for t in revel:
-            if a + PIEZA_MIN_S <= t <= b - PIEZA_MIN_S:
-                previo = max(c for c in cortes if c[0] <= t)
-                cortes = [c for c in cortes if abs(c[0] - t) >= PIEZA_MIN_S or c[0] == a]
-                cortes.append((t, max(ENCUADRE_REVELACION, previo[1] + 0.06), None))
-        for t in mom["pausas"]:
+        # Editorial: solo dentro del tramo inicial; intenso: en todo el video.
+        hasta = float("inf") if pf["ritmo_pieza_resto"] else pf["ritmo_hasta"]
+        if revel_aqui:
+            cortes.append((revel_aqui[0], ENCUADRE_REVELACION, None))
+        elif opts["ed_ritmo"] and pieza and b - a > max(pieza + 0.4, pf["ritmo_min"]) and (a + b) / 2 < hasta:
+            # Un salto a media imagen hacia el MISMO lado que el zoom lento: acercando
+            # 1.0 -> 1.06; alejando al reves (empieza cerrado y termina abierto).
+            cortes = [(a, 1.0 if acercar else ENCUADRE_SALTO, None),
+                      ((a + b) / 2, ENCUADRE_SALTO if acercar else 1.0, None)]
+        for t in pausas_aqui:
             fin_p = min(t + DUR_PAUSA, b)
-            if t - a < 0.6 or fin_p - t < 0.6:
-                continue
             previo = max(c for c in cortes if c[0] <= t)
             cortes = [c for c in cortes if not (t - 0.3 < c[0] < fin_p + 0.3) or c[0] == a]
             cortes.append((t, previo[1], "pausa"))
             if fin_p < b - 0.3:
                 cortes.append((fin_p, previo[1], None))
         cortes.sort(key=lambda c: c[0])
+        if acercar:  # nunca volver a abrir el encuadre dentro del plano
+            tope = 1.0
+            for k, (ini, enc, efecto) in enumerate(cortes):
+                tope = max(tope, enc)
+                cortes[k] = (ini, tope, efecto)
         for k, (ini, enc, efecto) in enumerate(cortes):
             fin = cortes[k + 1][0] if k + 1 < len(cortes) else b
             if fin - ini < 0.05:
                 continue
-            piezas.append({**x, "inicio": ini, "fin": fin, "encuadre": round(enc, 3),
-                           "desde": round(ini - a, 3), "pieza": k, "efecto": efecto, "pasado": pasado})
+            piezas.append({**x, "inicio": ini, "fin": fin, "fin_plano": b, "encuadre": round(enc, 3),
+                           "desde": round(ini - a, 3), "pieza": k, "efecto": efecto, "pasado": pasado,
+                           "acercar": acercar})
     return piezas
 
 

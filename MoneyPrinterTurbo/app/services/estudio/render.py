@@ -43,8 +43,11 @@ DEFECTOS = {
 }
 
 FPS = 30
-VERSION_CLIP = "1"
+VERSION_CLIP = "4"   # v2: Ken Burns suave; v3: mas lento; v4: una sola direccion por plano (tambien en pausas)
 PARALELO = 3
+# Ken Burns: `zoom` es el TOPE por plano; ademas nunca mas rapido que ZOOM_VEL por
+# segundo (4 s -> 3.2 %). Todas las piezas de un plano siguen el MISMO movimiento.
+ZOOM_VEL = 0.008
 
 
 def _encaje(modo, w, h):
@@ -63,13 +66,14 @@ def _salida_x264(frames, destino):
             "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", destino]
 
 
-def _clip_imagen(ruta, frames, w, h, encaje, zoom, acercar, destino, encuadre=1.0, extra=""):
+def _clip_imagen(ruta, frames, w, h, encaje, zoom, acercar, destino, encuadre=1.0, extra="",
+                 total=None, desde=0):
+    """`total`/`desde`: frames del plano entero y donde empieza esta pieza, para
+    que las piezas de un plano continuen el movimiento en vez de reiniciarlo."""
     ff = medios.ffmpeg()
-    if zoom and zoom > 0:
+    z = _z_lento(zoom, acercar, total or frames, desde, encuadre)
+    if z:
         # Se encaja al doble de tamano y zoompan reescala: sin eso el zoom tiembla.
-        z = (f"1+{zoom}*on/{frames}" if acercar else f"{1 + zoom}-{zoom}*on/{frames}")
-        if encuadre != 1.0:  # subcorte de la edicion editorial: mismo movimiento, mas cerca
-            z = f"{encuadre}*({z})"
         filtro = (f"{_encaje(encaje, w * 2, h * 2)},zoompan=z='{z}':x='iw/2-(iw/zoom/2)':"
                   f"y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={FPS}{extra},format=yuv420p")
         args = [ff, "-hide_banner", "-loglevel", "error", "-y", "-i", ruta,
@@ -81,6 +85,17 @@ def _clip_imagen(ruta, frames, w, h, encaje, zoom, acercar, destino, encuadre=1.
     return args
 
 
+def _z_lento(zoom, acercar, total, desde, encuadre=1.0):
+    """Expresion de zoompan del Ken Burns del plano en el frame `desde`+on (None sin
+    zoom). Encuadre > 1: subcorte de la edicion, mismo movimiento mas cerca."""
+    zoom = min(zoom, ZOOM_VEL * total / FPS) if zoom else 0
+    if zoom <= 0:
+        return None
+    z = (f"1+{zoom:.4f}*(on+{desde})/{total}" if acercar
+         else f"{1 + zoom:.4f}-{zoom:.4f}*(on+{desde})/{total}")
+    return f"{encuadre}*({z})" if encuadre != 1.0 else z
+
+
 def _cerrar(encuadre, w, h):
     """Encuadre mas cerrado (recorta al centro y vuelve al tamano)."""
     if encuadre == 1.0:
@@ -88,10 +103,11 @@ def _cerrar(encuadre, w, h):
     return f",crop=trunc(iw/{encuadre}/2)*2:trunc(ih/{encuadre}/2)*2,scale={w}:{h},setsar=1"
 
 
-def _clip_congelado(ruta, frames, w, h, encaje, offset, destino, encuadre=1.0, extra=""):
-    """Pausa dramatica: UN fotograma (del video en `offset`, o la imagen) que se
-    acerca despacio durante toda la pieza."""
-    z = f"{encuadre}*(1+0.06*on/{frames})"
+def _clip_congelado(ruta, frames, w, h, encaje, offset, destino, encuadre=1.0, extra="", z=None):
+    """Pausa dramatica: UN fotograma (del video en `offset`, o la imagen). En una
+    imagen `z` sigue el MISMO movimiento lento del plano (sin reiniciarlo ni cambiar
+    de sentido); un video se queda quieto."""
+    z = z or f"{encuadre}"
     filtro = (f"trim=end_frame=1,{_encaje(encaje, w * 2, h * 2)},zoompan=z='{z}':x='iw/2-(iw/zoom/2)':"
               f"y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={FPS}{extra},format=yuv420p")
     args = [medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
@@ -112,6 +128,18 @@ def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuad
     return args + ["-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
 
 
+def _acercar(pieza):
+    """Direccion del zoom lento: la que fijo la edicion para todo el plano, o alterna."""
+    return pieza["acercar"] if pieza.get("acercar") is not None else pieza["i"] % 2 == 0
+
+
+def _en_plano(pieza):
+    """(frames del plano entero, frame del plano donde empieza la pieza)."""
+    a = float(pieza["inicio"]) - float(pieza.get("desde") or 0)
+    b = float(pieza.get("fin_plano") or pieza["fin"])
+    return max(1, round(b * FPS) - round(a * FPS)), round(float(pieza["inicio"]) * FPS) - round(a * FPS)
+
+
 def _hacer_clip(plano, recurso, frames, w, h, p, destino):
     tmp = destino + ".tmp.mp4"
     encuadre = float(plano.get("encuadre") or 1.0)
@@ -121,11 +149,13 @@ def _hacer_clip(plano, recurso, frames, w, h, p, destino):
     offset = float(plano.get("offset") or 0) + float(plano.get("desde") or 0)
     if plano.get("efecto") == "pausa":
         extra += "," + edicion.FILTRO_PAUSA
+        z = _z_lento(float(p["zoom"] or 0), _acercar(plano), *_en_plano(plano), encuadre)             if plano["tipo"] == "imagen" else None
         args = _clip_congelado(recurso["ruta"], frames, w, h, p["encaje"],
-                               offset if plano["tipo"] == "video" else 0, tmp, encuadre, extra)
+                               offset if plano["tipo"] == "video" else 0, tmp, encuadre, extra, z)
     elif plano["tipo"] == "imagen":
+        total, desde = _en_plano(plano)
         args = _clip_imagen(recurso["ruta"], frames, w, h, p["encaje"], float(p["zoom"] or 0),
-                            (plano["i"] + plano.get("pieza", 0)) % 2 == 0, tmp, encuadre, extra)
+                            _acercar(plano), tmp, encuadre, extra, total, desde)
     else:
         args = _clip_video(recurso["ruta"], frames, w, h, p["encaje"], offset,
                            float(recurso.get("duracion") or 0), tmp, encuadre, extra)
@@ -177,6 +207,10 @@ def ejecutar(ctx):
     voz = ctx.salidas["voz"] or {}
     if not planos:
         raise ValueError("no hay planos asignados")
+    # El video unido empieza en 0: si el primer plano arranca con la voz (p. ej. 0,9 s)
+    # todo quedaria adelantado respecto a voz, subtitulos y flashes. Se ancla en 0.
+    planos = [dict(x) for x in planos]
+    planos[0]["inicio"] = 0.0
     w, h = VideoAspect(p["aspecto"]).to_resolution()
     dir_clips = ctx.dir("render", "clips")
     rapido = p.get("acabado", "rapido") == "rapido" and acabado.tiene_libass(medios.ffmpeg())
@@ -198,7 +232,7 @@ def ejecutar(ctx):
             raise FileNotFoundError(f"plano {x['i']}: el recurso {x['nombre']} ya no esta en disco")
         r = {"ruta": x["ruta"], "nombre": x["nombre"], "duracion": x.get("dur_recurso", 0.0)}
         base = (VERSION_CLIP, x["recurso"], x["tipo"], frames, x.get("offset"), w, h, p["encaje"], p["zoom"],
-                (x["i"] + x["pieza"]) % 2 if x["tipo"] == "imagen" else 0)
+                (_acercar(x),) + _en_plano(x) if x["tipo"] == "imagen" else 0)
         if x["encuadre"] != 1.0 or x["desde"]:  # sin subcortes la clave es la de siempre: cache intacta
             base += (x["encuadre"], x["desde"] if x["tipo"] == "video" else 0)
         if x["efecto"] or x["pasado"]:

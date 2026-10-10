@@ -277,7 +277,7 @@ docker build -t estudio-ui:latest --build-arg MPT_API_URL=http://api:8080 ./estu
 docker stack deploy -c docker-stack.yml mpt
 ```
 
-- **Dominio:** `estudio.saraviamtech.com` (label `Host(...)` del servicio `estudio`), con auth básica de Traefik.
+- **Dominio:** `studio.saraviamtech.com` (label `Host(...)` del servicio `estudio`), con auth básica de Traefik.
 - **Sesión de Claude:** ver [En el VPS](#en-el-vps-docker-swarm).
 - **Datos persistentes:** proyectos en `/root/mpt-data/storage/estudio/`, recursos del servidor en `/root/mpt-data/recursos` (dentro del contenedor, `/recursos`).
 - **Actualizar:** `git pull`, reconstruir las dos imágenes y luego `docker service update --force mpt_api` y `docker service update --force mpt_estudio`.
@@ -289,7 +289,7 @@ docker stack deploy -c docker-stack.yml mpt
 Dos CLIs para que Hermes, n8n o un cron trabajen sin abrir el navegador. Usan la API del Estudio:
 
 ```bash
-# Contra el VPS (por defecto): https://estudio.saraviamtech.com/api/motor
+# Contra el VPS (por defecto): https://studio.saraviamtech.com/api/motor
 export MPT_BASIC_AUTH="usuario:password"          # la auth básica de Traefik
 # En local:
 export MPT_API_BASE="http://localhost:8080/api/v1"
