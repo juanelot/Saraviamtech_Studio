@@ -22,6 +22,7 @@ from app.models.schema import VideoAspect, VideoParams
 from app.services import video as mpt_video
 from app.services.estudio import acabado, edicion, medios
 from app.services.estudio import voz as voz_mod
+from app.utils import utils
 
 DEFECTOS = {
     "aspecto": "16:9",
@@ -118,11 +119,15 @@ def _clip_congelado(ruta, frames, w, h, encaje, offset, destino, encuadre=1.0, e
     return args + ["-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
 
 
-def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuadre=1.0, extra=""):
+def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuadre=1.0, extra="", sin_bucle=False):
+    """Si el clip no alcanza se repite en bucle; con `sin_bucle` (escenas de un prompt
+    maestro) se congela su ultimo fotograma en vez de volver a empezar."""
     necesita = frames / FPS
     bucle = dur_recurso and (offset + necesita) > dur_recurso + 0.05
     args = [medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
-    if bucle:
+    if bucle and sin_bucle:
+        extra += f",tpad=stop_mode=clone:stop_duration={necesita - max(0.0, dur_recurso - offset) + 0.5:.3f}"
+    elif bucle:
         args += ["-stream_loop", "-1"]
     if offset > 0:
         args += ["-ss", f"{offset:.3f}"]
@@ -160,7 +165,7 @@ def _hacer_clip(plano, recurso, frames, w, h, p, destino):
                             _acercar(plano), tmp, encuadre, extra, total, desde)
     else:
         args = _clip_video(recurso["ruta"], frames, w, h, p["encaje"], offset,
-                           float(recurso.get("duracion") or 0), tmp, encuadre, extra)
+                           float(recurso.get("duracion") or 0), tmp, encuadre, extra, bool(plano.get("sin_bucle")))
     r = medios.correr(args, timeout=900)
     if r.returncode != 0 or not os.path.exists(tmp):
         raise RuntimeError(f"ffmpeg fallo en el plano {plano['i']} ({recurso['nombre']}): {r.stderr[-400:]}")
@@ -225,6 +230,10 @@ def ejecutar(ctx):
         planos, audio_clips, voz_clips = _voz_de_clips(ctx, planos, ctx.dir("render"))
         if voz_clips:
             voz = {**voz, **voz_clips}
+    elif ctx.params_de("escenas").get("fijas") and ctx.params_de("asignacion").get("modo") == "escenas":
+        # Prompt maestro con narracion: cada escena dura lo que su clip y la voz se acomoda.
+        ctx.avisar("ajustando la voz a la duracion de cada clip", 1)
+        planos, voz = _voz_a_clips(ctx, planos, voz, ctx.dir("render"))
     editorial = rapido and edicion.activa(p) and (not sin_voz or bool(voz.get("palabras")))
 
     # Editorial: Claude marca antes de los clips (las revelaciones deciden los
@@ -245,6 +254,8 @@ def ejecutar(ctx):
         r = {"ruta": x["ruta"], "nombre": x["nombre"], "duracion": x.get("dur_recurso", 0.0)}
         base = (VERSION_CLIP, x["recurso"], x["tipo"], frames, x.get("offset"), w, h, p["encaje"], p["zoom"],
                 (_acercar(x),) + _en_plano(x) if x["tipo"] == "imagen" else 0)
+        if x.get("sin_bucle"):
+            base += ("sin_bucle",)
         if x["encuadre"] != 1.0 or x["desde"]:  # sin subcortes la clave es la de siempre: cache intacta
             base += (x["encuadre"], x["desde"] if x["tipo"] == "video" else 0)
         if x["efecto"] or x["pasado"]:
@@ -346,6 +357,10 @@ def _voz_de_clips(ctx, planos, carpeta):
     for x in planos:
         a, b = float(x["inicio"]), float(x["fin"])
         suyas = [w for w in oidas if a <= (w[0] + w[1]) / 2 < b]
+        dur_rec = float(x.get("dur_recurso") or 0)
+        if x["tipo"] == "video" and dur_rec:  # nunca mas alla del clip (lo que siga seria su bucle)
+            b = min(b, a + max(0.5, dur_rec - float(x.get("offset") or 0)))
+            suyas = [w for w in suyas if w[1] <= b + 0.1]
         na, nb = a, b
         if suyas and x["tipo"] == "video":
             na = max(a, suyas[0][0] - MARGEN_ANTES_S)
@@ -372,6 +387,91 @@ def _voz_de_clips(ctx, planos, carpeta):
     ctx.avisar(f"sin voz: {len(palabras)} palabras oidas, {recortado:g}s de silencio recortados", 3)
     return nuevos, audio, {"srt": "render/voz_clips.srt", "palabras": "render/palabras_clips.json",
                            "duracion": round(cursor, 3), "sin_voz": True}
+
+
+VELOCIDAD_MAX = 1.15  # cuanto se puede acelerar la voz de una escena para caber en su clip
+ENTRADA_S = 0.15      # la voz entra un instante despues del corte
+COLA_S = 0.25         # y deja un respiro antes del siguiente
+
+
+def _voz_a_clips(ctx, planos, voz, carpeta):
+    """Escenas de un prompt maestro CON narracion: la voz se genero de corrido y las
+    escenas se repartieron por sus palabras, asi que una escena podia durar mas que
+    su clip (y el clip volvia a empezar) o menos (y se cortaba). Aqui cada escena dura
+    lo que su clip y su trozo de voz se coloca al principio; si no cabe se acelera un
+    poco (hasta VELOCIDAD_MAX) y, si aun asi no cabe, la escena se alarga congelando el
+    ultimo fotograma (nunca se repite el clip). Devuelve (planos, voz) con el audio,
+    el SRT y las palabras nuevos en render/."""
+    origen = ctx.dir(voz["audio"], crear=False)
+    ruta_pal = ctx.dir(voz.get("palabras") or "voz/palabras.json", crear=False)
+    palabras = []
+    if os.path.isfile(ruta_pal):
+        with open(ruta_pal, encoding="utf-8") as f:
+            palabras = [tuple(x) for x in json.load(f)]
+    lineas = acabado.lineas_srt(ctx.dir(voz["srt"], crear=False)) if voz.get("srt") else []
+
+    trozos_dir = os.path.join(carpeta, "voz_escenas")
+    os.makedirs(trozos_dir, exist_ok=True)
+    ff = medios.ffmpeg()
+    nuevos, tramos, trozos, cursor, congelados = [], [], [], 0.0, 0
+    for x in planos:
+        a, b = float(x["inicio"]), float(x["fin"])
+        suyas = [w for w in palabras if a <= (w[0] + w[1]) / 2 < b]
+        s0 = max(a, suyas[0][0] - 0.05) if suyas else a
+        s1 = min(b, suyas[-1][1] + 0.1) if suyas else b
+        habla = max(0.05, s1 - s0)
+        dur_rec = float(x.get("dur_recurso") or 0)
+        if x["tipo"] == "video" and dur_rec:
+            caben = max(0.5, dur_rec - float(x.get("offset") or 0))
+        else:
+            caben = b - a
+        hace_falta = ENTRADA_S + habla + COLA_S
+        vel = 1.0 if hace_falta <= caben else min(VELOCIDAD_MAX, habla / max(0.1, caben - ENTRADA_S - COLA_S))
+        dur = max(caben, ENTRADA_S + habla / vel + COLA_S)
+        congelados += x["tipo"] == "video" and dur > caben + 0.05
+        frames = max(1, round(dur * FPS))
+        dur = frames / FPS
+        destino = os.path.join(trozos_dir, f"{x['i']:04d}.wav")
+        filtro = (f"atempo={vel:.4f}," if vel > 1.001 else "") + f"adelay={int(ENTRADA_S * 1000)}:all=1,apad"
+        r = medios.correr([ff, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{s0:.3f}", "-t", f"{habla:.3f}",
+                           "-i", origen, "-af", filtro, "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "2",
+                           "-c:a", "pcm_s16le", destino], timeout=300)
+        if r.returncode != 0:
+            raise RuntimeError(f"no se pudo colocar la voz de la escena {x['i'] + 1}: {r.stderr[-300:]}")
+        trozos.append(destino)
+        tramos.append((a, b, s0, vel, cursor))
+        nuevos.append({**x, "inicio": round(cursor, 3), "fin": round(cursor + dur, 3), "sin_bucle": True})
+        cursor += dur
+
+    def mover(t):
+        """Tiempo de la voz original -> tiempo en el video ajustado."""
+        for a, b, s0, vel, ini in tramos:
+            if t < b or (a, b) == tramos[-1][:2]:
+                return round(ini + ENTRADA_S + max(0.0, t - s0) / vel, 3)
+        return round(t, 3)
+
+    audio = os.path.join(carpeta, "voz_escenas.wav")
+    lista = audio + ".txt"
+    with open(lista, "w", encoding="utf-8") as f:
+        for t in trozos:
+            f.write("file '" + t.replace("\\", "/") + "'\n")
+    r = medios.correr([ff, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+                       "-i", lista, "-c", "copy", audio], timeout=600)
+    os.remove(lista)
+    for t in trozos:
+        os.remove(t)
+    if r.returncode != 0:
+        raise RuntimeError(f"no se pudo unir la voz de las escenas: {r.stderr[-300:]}")
+
+    with open(os.path.join(carpeta, "palabras_escenas.json"), "w", encoding="utf-8") as f:
+        json.dump([[mover(s), max(mover(s), mover(e)), t] for s, e, t in palabras], f, ensure_ascii=False)
+    with open(os.path.join(carpeta, "voz_escenas.srt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(utils.text_to_srt(n, t, mover(s), max(mover(s) + 0.2, mover(e)))
+                          for n, (s, e, t) in enumerate(lineas, start=1)) + "\n")
+    ctx.avisar(f"voz ajustada a {len(nuevos)} clips ({cursor:.1f}s)"
+               + (f"; {congelados} escenas alargadas congelando el ultimo fotograma" if congelados else ""), 3)
+    return nuevos, {**voz, "audio": "render/voz_escenas.wav", "srt": "render/voz_escenas.srt",
+                    "palabras": "render/palabras_escenas.json", "duracion": round(cursor, 3)}
 
 
 def _audio_de_clips(planos, carpeta):

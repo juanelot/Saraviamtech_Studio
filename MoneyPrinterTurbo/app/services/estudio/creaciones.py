@@ -430,6 +430,20 @@ def separar_app(salida):
 NARRACIONES = ("propia", "demostracion", "libre", "sin_voz")
 ASPECTOS = ("9:16", "16:9", "1:1")
 VOZ_POR_IDIOMA = {"es": "es-MX-JorgeNeural-Male", "en": "en-US-AndrewNeural-Male", "pt": "pt-BR-AntonioNeural-Male"}
+IDIOMAS = ("es", "en", "pt", "fr", "it", "de")
+_MARCAS_IDIOMA = {
+    "es": {"el", "la", "los", "las", "de", "que", "y", "en", "un", "una", "por", "con", "es", "no", "lo"},
+    "en": {"the", "and", "of", "to", "is", "in", "that", "you", "it", "with", "for", "this", "are", "was"},
+    "pt": {"o", "os", "as", "do", "da", "que", "e", "em", "um", "uma", "com", "não", "você", "é"},
+}
+
+
+def _idioma_de(texto):
+    """Idioma de la narracion cuando la ficha no lo fija (cuenta palabras frecuentes)."""
+    palabras = [w.strip(".,;:!?¿¡\"'()").lower() for w in texto.split()]
+    cuenta = {k: sum(w in v for w in palabras) for k, v in _MARCAS_IDIOMA.items()}
+    mejor = max(cuenta, key=cuenta.get)
+    return mejor if cuenta[mejor] else "es"
 
 PROMPT_DEMOSTRACION = """Vas a escribir la NARRACION de un video corto del estilo "{estilo}".
 El prompt maestro de este estilo no trae voz; la persona quiere narrarlo como DEMOSTRACION:
@@ -470,11 +484,13 @@ def crear_video(mid, cid, narracion, aspecto=None, voz=None, titulo=None):
     ficha = maestro.get("ficha") or {}
     formato = ficha.get("formato") or {}
     clip_s = float(formato.get("clip_s") or 0) or 8.0
-    idioma = str((ficha.get("narracion") or {}).get("idioma") or "es").split("-")[0].lower()[:2] or "es"
+    idioma = str((ficha.get("narracion") or {}).get("idioma") or "es").split("-")[0].lower()
     aspecto = aspecto if aspecto in ASPECTOS else aspecto_de(ficha)
 
     fijas = [{"n": s["n"], "narracion": s.get("narracion"), "imagen": s.get("imagen"), "video": s.get("video"),
               "duracion_s": float(s.get("duracion_s") or 0) or clip_s} for s in escenas]
+    if idioma not in IDIOMAS:  # p. ej. "variable": lo elige la persona en la creacion
+        idioma = _idioma_de(" ".join(f["narracion"] or "" for f in fijas) or e.get("guion") or "")
     params = {"escenas": {"generar": "no", "fijas": fijas},
               "asignacion": {"modo": "escenas", "preferir": "video"},
               "render": {"aspecto": aspecto}}
