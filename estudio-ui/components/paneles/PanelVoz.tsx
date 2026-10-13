@@ -16,6 +16,12 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado, recarga
   const voces = AZURE_VOICES.filter((x) => x.lang === idioma);
   const [tipo, setTipo] = useState<"microsoft" | "clonada" | "propia">(
     voz.startsWith("clon:") ? "clonada" : voz.startsWith("propia:") ? "propia" : "microsoft");
+  // Escenas de duracion fija (proyecto creado desde un prompt maestro): permiten quitar la voz.
+  const fijas = (p("escenas").fijas as { duracion_s?: number }[] | undefined) || [];
+  const sinVoz = () => {
+    set("voz", "tramos", fijas.map((f) => Number(f.duracion_s) || 8));
+    set("voz", "voz", "ninguna");
+  };
 
   if (voz === "ninguna") {
     const tramos = (v.tramos as number[]) || [];
@@ -49,8 +55,10 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado, recarga
         <div className="space-y-4">
           <Segmentado
             valor={tipo}
-            opciones={[{ v: "microsoft", t: "Microsoft" }, { v: "clonada", t: "Voz clonada" }, { v: "propia", t: "Mi audio" }]}
+            opciones={[{ v: "microsoft", t: "Microsoft" }, { v: "clonada", t: "Voz clonada" }, { v: "propia", t: "Mi audio" },
+              ...(fijas.length ? [{ v: "ninguna" as const, t: "Sin voz" }] : [])]}
             onChange={(t) => {
+              if (t === "ninguna") return sinVoz();
               setTipo(t);
               if (t === "microsoft" && !voz.startsWith("es-") && voz.includes(":")) set("voz", "voz", "es-ES-AlvaroNeural-Male");
             }}
