@@ -325,15 +325,12 @@ def ejecutar(ctx):
             "tam_mb": round(os.path.getsize(final) / 1e6, 1)}
 
 
-MARGEN_ANTES_S = 0.25   # aire antes de la primera palabra de un clip
-MARGEN_DESPUES_S = 0.45  # y despues de la ultima
-
-
 def _voz_de_clips(ctx, planos, carpeta):
-    """Sin narracion propia: transcribe el sonido de los clips con Whisper y quita
-    el silencio del principio y del final de cada clip de video, para que el corte
-    caiga cuando termina de hablar. Devuelve (planos, audio, voz para la edicion);
-    la voz es None si los clips no tienen habla (ASMR, musica): se unen tal cual."""
+    """Sin narracion propia: transcribe el sonido de los clips con Whisper para los
+    subtitulos y la edicion. Los clips se usan ENTEROS (la accion sigue despues de
+    hablar: no se recorta nada), pero nunca mas alla de su final (eso seria repetirlo
+    en bucle). Devuelve (planos, audio, voz para la edicion); la voz es None si los
+    clips no tienen habla (ASMR, musica): se unen tal cual."""
     audio = _audio_de_clips(planos, carpeta)
     idioma = str(ctx.params_de("guion").get("idioma") or "").split("-")[0] or None
     try:
@@ -362,11 +359,6 @@ def _voz_de_clips(ctx, planos, carpeta):
             b = min(b, a + max(0.5, dur_rec - float(x.get("offset") or 0)))
             suyas = [w for w in suyas if w[1] <= b + 0.1]
         na, nb = a, b
-        if suyas and x["tipo"] == "video":
-            na = max(a, suyas[0][0] - MARGEN_ANTES_S)
-            nb = min(b, suyas[-1][1] + MARGEN_DESPUES_S)
-        if nb - na < 0.5:
-            na, nb = a, b
         corrimiento = cursor - na
         palabras += [[round(max(cursor, s + corrimiento), 3), round(min(cursor + nb - na, e + corrimiento), 3), t]
                      for s, e, t in suyas]
@@ -384,7 +376,8 @@ def _voz_de_clips(ctx, planos, carpeta):
     if not voz_mod.srt_de_palabras(" ".join(t for _a, _b, t in palabras), palabras, srt):
         logger.warning("sin voz: no se pudo armar el SRT de la transcripcion")
         return nuevos, audio, None
-    ctx.avisar(f"sin voz: {len(palabras)} palabras oidas, {recortado:g}s de silencio recortados", 3)
+    ctx.avisar(f"sin voz: {len(palabras)} palabras oidas, clips enteros"
+               + (f" ({recortado:g}s que pasaban del final de los clips)" if recortado > 0.05 else ""), 3)
     return nuevos, audio, {"srt": "render/voz_clips.srt", "palabras": "render/palabras_clips.json",
                            "duracion": round(cursor, 3), "sin_voz": True}
 
