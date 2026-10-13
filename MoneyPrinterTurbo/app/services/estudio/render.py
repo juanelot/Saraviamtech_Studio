@@ -12,6 +12,7 @@ Encaje:   recortar (llena la pantalla) | desenfoque (entero sobre fondo
           desenfocado) | negro (entero con bandas).
 """
 import hashlib
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -20,6 +21,7 @@ from loguru import logger
 from app.models.schema import VideoAspect, VideoParams
 from app.services import video as mpt_video
 from app.services.estudio import acabado, edicion, medios
+from app.services.estudio import voz as voz_mod
 
 DEFECTOS = {
     "aspecto": "16:9",
@@ -215,7 +217,15 @@ def ejecutar(ctx):
     dir_clips = ctx.dir("render", "clips")
     rapido = p.get("acabado", "rapido") == "rapido" and acabado.tiene_libass(medios.ffmpeg())
     sin_voz = bool(voz.get("sin_voz"))
-    editorial = rapido and edicion.activa(p) and not sin_voz
+    audio_clips = None
+    if sin_voz:
+        # La "voz" es la que traen los clips (p. ej. Flow): Whisper la transcribe, se
+        # recortan los silencios de cada clip y la edicion trabaja sobre ese texto.
+        ctx.avisar("sin voz: escuchando el audio de los clips", 1)
+        planos, audio_clips, voz_clips = _voz_de_clips(ctx, planos, ctx.dir("render"))
+        if voz_clips:
+            voz = {**voz, **voz_clips}
+    editorial = rapido and edicion.activa(p) and (not sin_voz or bool(voz.get("palabras")))
 
     # Editorial: Claude marca antes de los clips (las revelaciones deciden los
     # subcortes) y los planos se parten en piezas. Si no, una pieza por plano.
@@ -224,6 +234,8 @@ def ejecutar(ctx):
         ctx.avisar(f"{edicion.nombre(p)}: marcas de Claude", 1)
         lineas, marcas_ = edicion.lineas_y_marcas(ctx, voz, p)
         piezas = edicion.subcortes(planos, lineas, marcas_, edicion.opciones(p))
+        if sin_voz:  # congelar la imagen desfasaria la voz del propio clip
+            piezas = [{**x, "efecto": None} if x["efecto"] == "pausa" else x for x in piezas]
 
     trabajos, clips = [], []
     for x in piezas:
@@ -262,10 +274,9 @@ def ejecutar(ctx):
     final = os.path.join(carpeta, "final.mp4")
     tmp_final = os.path.join(carpeta, "final.tmp.mp4")
     audio = ctx.dir(voz["audio"], crear=False)
-    srt = ctx.dir(voz["srt"], crear=False) if p["subtitulos"] and not sin_voz else ""
+    srt = ctx.dir(voz["srt"], crear=False) if p["subtitulos"] and (not sin_voz or voz.get("palabras")) else ""
     if sin_voz:
-        ctx.avisar("sin voz: sonido de los clips", 73)
-        audio = _audio_de_clips(planos, carpeta)
+        audio = audio_clips
     if p.get("acabado", "rapido") == "rapido" and not rapido:
         logger.warning("este ffmpeg no trae libass: se usa el acabado clasico (lento)")
     resumen_edicion = None
@@ -301,6 +312,66 @@ def ejecutar(ctx):
             "clips_nuevos": len(trabajos), "clips_reutilizados": len(piezas) - len(trabajos),
             "edicion": resumen_edicion,
             "tam_mb": round(os.path.getsize(final) / 1e6, 1)}
+
+
+MARGEN_ANTES_S = 0.25   # aire antes de la primera palabra de un clip
+MARGEN_DESPUES_S = 0.45  # y despues de la ultima
+
+
+def _voz_de_clips(ctx, planos, carpeta):
+    """Sin narracion propia: transcribe el sonido de los clips con Whisper y quita
+    el silencio del principio y del final de cada clip de video, para que el corte
+    caiga cuando termina de hablar. Devuelve (planos, audio, voz para la edicion);
+    la voz es None si los clips no tienen habla (ASMR, musica): se unen tal cual."""
+    audio = _audio_de_clips(planos, carpeta)
+    idioma = str(ctx.params_de("guion").get("idioma") or "").split("-")[0] or None
+    try:
+        segmentos, _info = voz_mod._modelo_whisper().transcribe(
+            audio, word_timestamps=True, vad_filter=True, beam_size=1, language=idioma)
+        oidas = []
+        for s in segmentos:
+            for w in s.words or []:
+                trozos = w.word.split()
+                paso = (float(w.end) - float(w.start)) / max(1, len(trozos))
+                oidas += [(float(w.start) + k * paso, float(w.start) + (k + 1) * paso, t)
+                          for k, t in enumerate(trozos)]
+    except Exception as e:  # noqa: BLE001 -- sin transcripcion el video sale igual, sin edicion
+        logger.warning(f"sin voz: Whisper fallo ({e}); se unen los clips tal cual")
+        return planos, audio, None
+    if not oidas:
+        ctx.avisar("sin voz: los clips no tienen habla, se unen tal cual", 2)
+        return planos, audio, None
+
+    nuevos, palabras, cursor = [], [], 0.0
+    for x in planos:
+        a, b = float(x["inicio"]), float(x["fin"])
+        suyas = [w for w in oidas if a <= (w[0] + w[1]) / 2 < b]
+        na, nb = a, b
+        if suyas and x["tipo"] == "video":
+            na = max(a, suyas[0][0] - MARGEN_ANTES_S)
+            nb = min(b, suyas[-1][1] + MARGEN_DESPUES_S)
+        if nb - na < 0.5:
+            na, nb = a, b
+        corrimiento = cursor - na
+        palabras += [[round(max(cursor, s + corrimiento), 3), round(min(cursor + nb - na, e + corrimiento), 3), t]
+                     for s, e, t in suyas]
+        nuevos.append({**x, "inicio": round(cursor, 3), "fin": round(cursor + nb - na, 3),
+                       "offset": round(float(x.get("offset") or 0) + (na - a), 3)})
+        cursor += nb - na
+    recortado = round(float(planos[-1]["fin"]) - cursor, 1)
+    if recortado > 0.05:
+        audio = _audio_de_clips(nuevos, carpeta)
+
+    srt = os.path.join(carpeta, "voz_clips.srt")
+    ruta_palabras = os.path.join(carpeta, "palabras_clips.json")
+    with open(ruta_palabras, "w", encoding="utf-8") as f:
+        json.dump(palabras, f, ensure_ascii=False)
+    if not voz_mod.srt_de_palabras(" ".join(t for _a, _b, t in palabras), palabras, srt):
+        logger.warning("sin voz: no se pudo armar el SRT de la transcripcion")
+        return nuevos, audio, None
+    ctx.avisar(f"sin voz: {len(palabras)} palabras oidas, {recortado:g}s de silencio recortados", 3)
+    return nuevos, audio, {"srt": "render/voz_clips.srt", "palabras": "render/palabras_clips.json",
+                           "duracion": round(cursor, 3), "sin_voz": True}
 
 
 def _audio_de_clips(planos, carpeta):

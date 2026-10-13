@@ -32,6 +32,10 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado, recarga
             Este video no lleva narracion: suena el audio de los propios clips (ASMR, efectos o dialogos generados en Flow),
             con {tramos.length} escenas de duracion fija ({mmss(tramos.reduce((a, b) => a + b, 0))} en total).
           </p>
+          <p className="mt-2 text-xs text-tinta-3">
+            Si los clips hablan, al montar Whisper los transcribe: se recorta el silencio al inicio y al final de cada
+            clip y funcionan los subtitulos y los estilos editorial e intenso.
+          </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button className="boton boton-acento" disabled={ocupado} onClick={() => ejecutar("voz")}>
               {et.salida ? "Rehacer la pista" : "Preparar la pista"}

@@ -251,7 +251,7 @@ const NARRACIONES: { v: Narracion; t: string; d: string }[] = [
   { v: "propia", t: "Su guion", d: "La narracion que escribio el prompt maestro, tal cual." },
   { v: "demostracion", t: "Guion demostracion", d: "Claude narra lo que se ve en cada escena, ajustado a su duracion." },
   { v: "libre", t: "Guion libre", d: "Claude redacta un guion del tema para la duracion total; lo puedes editar en Guion." },
-  { v: "sin_voz", t: "Sin voz", d: "Sin locucion ni subtitulos: suena el audio de los clips (ASMR, efectos, dialogos de Veo)." },
+  { v: "sin_voz", t: "Sin voz", d: "Sin locucion: suena el audio de los clips (voz de Flow, ASMR, efectos). Si hablan, se transcriben para subtitulos y edicion." },
 ];
 
 function CrearVideo({ c, mid, ficha, ocupado }: { c: Creacion; mid: string; ficha: FichaMaestro | null; ocupado: boolean }) {

@@ -787,7 +787,7 @@ def preparar(ctx, voz, planos, p, w, h, duracion):
     opts = opciones(p)
     carpeta = ctx.dir("render")
     lineas, marcas_ = lineas_y_marcas(ctx, voz, p)
-    por_linea = palabras_por_linea(lineas, ctx.dir("voz", "palabras.json", crear=False))
+    por_linea = palabras_por_linea(lineas, ctx.dir(voz.get("palabras") or "voz/palabras.json", crear=False))
     mom = momentos(lineas, marcas_, opts)
     fuerte = intenso(opts)
     cambios = [float(b["inicio"]) for a, b in zip(planos, planos[1:]) if b.get("recurso") != a.get("recurso")]
