@@ -129,6 +129,18 @@ const json = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+export type Espacio = {
+  total: number;
+  liberable: number;
+  proyectos: { id: string; total: number; liberable: number }[];
+};
+
+export function tamano(bytes: number) {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${Math.round(bytes / 1e6)} MB`;
+  return `${Math.max(0, Math.round(bytes / 1e3))} KB`;
+}
+
 export const api = {
   listar: () => pedir<{ proyectos: ResumenProyecto[] }>("/proyectos"),
   crear: (titulo: string) => pedir<Vista>("/proyectos", { method: "POST", ...json({ titulo }) }),
@@ -141,6 +153,10 @@ export const api = {
   ejecutar: (id: string, hasta: EtapaId, forzar: EtapaId[] = []) =>
     pedir<Vista>(`/proyectos/${id}/ejecutar`, { method: "POST", ...json({ hasta, forzar }) }),
   cancelar: (id: string) => pedir<{ cancelado: boolean }>(`/proyectos/${id}/cancelar`, { method: "POST" }),
+  // Liberar espacio: borra solo lo regenerable (cache de clips e intermedios del montaje).
+  espacio: () => pedir<Espacio>("/espacio"),
+  liberar: (id: string) => pedir<{ liberado: number; total: number; liberable: number }>(`/proyectos/${id}/liberar`, { method: "POST" }),
+  liberarTodo: () => pedir<{ liberado: number; proyectos: number; ocupados: string[] }>("/liberar", { method: "POST" }),
   subidos: (id: string) => pedir<{ archivos: Subido[] }>(`/proyectos/${id}/recursos`),
   subir: (id: string, archivos: File[], sub: "" | "images" | "videos" = "") => {
     const fd = new FormData();

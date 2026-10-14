@@ -20,6 +20,7 @@ from app.services import claude_cli
 from app.services.estudio import (almacen, asistente, creaciones, grafo, maestros, medios, recursos, referencias,
                                   series, voz_clonada)
 from app.services.estudio import miniatura as portada_video
+from app.services.estudio import limpieza
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -109,6 +110,25 @@ def editar(pid: str, body: dict = Body(...)):
                     actual[k] = v
         almacen.guardar(proyecto)
     return _vista(pid)
+
+
+@router.get("/estudio/espacio", summary="Espacio que ocupan los proyectos y cuanto se puede liberar")
+def espacio():
+    return limpieza.resumen()
+
+
+@router.post("/estudio/liberar", summary="Liberar espacio en todos los proyectos (cache y archivos intermedios)")
+def liberar_todo():
+    return limpieza.liberar_todo()
+
+
+@router.post("/estudio/proyectos/{pid}/liberar", summary="Liberar espacio del proyecto (cache y archivos intermedios)")
+def liberar(pid: str):
+    _existe(pid)
+    try:
+        return {"liberado": limpieza.liberar(pid), **limpieza.espacio(pid)}
+    except limpieza.ErrorLimpieza as e:
+        raise HTTPException(409, str(e))
 
 
 @router.delete("/estudio/proyectos/{pid}", summary="Borrar proyecto")

@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Copy, Download, Film, Loader2, Pencil, Play, Plus, SquarePen, Trash2, X } from "lucide-react";
-import { api, mmss, url, type ResumenProyecto } from "@/lib/api";
+import { Copy, Download, Eraser, Film, Loader2, Pencil, Play, Plus, SquarePen, Trash2, X } from "lucide-react";
+import { api, mmss, tamano, url, type Espacio, type ResumenProyecto } from "@/lib/api";
 import { MARCA } from "@/lib/marca";
 
 // Ejemplos que rotan en el campo de titulo: el tipo de contenido que hace el Estudio.
@@ -28,9 +28,15 @@ export default function Inicio() {
   const [ejemplo, setEjemplo] = useState(0);
   const [viendo, setViendo] = useState<ResumenProyecto | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const [espacio, setEspacio] = useState<Espacio | null>(null);
+  const [liberando, setLiberando] = useState(false);
+  const [aviso, setAviso] = useState("");
 
-  const cargar = () =>
-    api.listar().then((r) => setProyectos(r.proyectos)).catch((e) => setError(String(e.message || e)));
+  const cargar = () => {
+    api.espacio().then(setEspacio).catch(() => setEspacio(null));
+    return api.listar().then((r) => setProyectos(r.proyectos)).catch((e) => setError(String(e.message || e)));
+  };
+  const liberable = (id: string) => espacio?.proyectos.find((x) => x.id === id)?.liberable || 0;
 
   useEffect(() => {
     cargar();
@@ -73,6 +79,29 @@ export default function Inicio() {
     if (t && t.trim() && t !== p.titulo) accion(p, () => api.editar(p.id, { titulo: t.trim() }));
   };
 
+  const liberar = (p: ResumenProyecto) =>
+    accion(p, async () => {
+      const r = await api.liberar(p.id);
+      setAviso(`«${p.titulo}»: ${tamano(r.liberado)} liberados.`);
+    });
+
+  async function liberarTodo() {
+    if (!espacio || !confirm(
+      `¿Liberar ${tamano(espacio.liberable)}? Se borran solo la cache de clips y los archivos intermedios del montaje. ` +
+      "Tus videos finales y lo que subiste no se tocan; si vuelves a montar un video, los clips se rehacen solos.")) return;
+    setLiberando(true);
+    try {
+      const r = await api.liberarTodo();
+      setAviso(`${tamano(r.liberado)} liberados en ${r.proyectos} proyectos` +
+        (r.ocupados.length ? ` (${r.ocupados.length} trabajando, se saltaron)` : "") + ".");
+      await cargar();
+    } catch (err) {
+      setError(String((err as Error).message));
+    } finally {
+      setLiberando(false);
+    }
+  }
+
   const duplicar = (p: ResumenProyecto) =>
     accion(p, async () => {
       const v = await api.duplicar(p.id);
@@ -114,8 +143,29 @@ export default function Inicio() {
 
       <div className="mb-4 flex items-baseline justify-between">
         <h2 className="font-display text-2xl font-semibold">Mis videos</h2>
-        {proyectos && <span className="text-sm text-tinta-3">{proyectos.length} proyectos</span>}
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {proyectos && (
+            <span className="text-sm text-tinta-3">
+              {proyectos.length} proyectos{espacio ? ` · ${tamano(espacio.total)}` : ""}
+            </span>
+          )}
+          {espacio && (
+            <button className="boton boton-linea !py-1.5 text-sm" disabled={liberando || espacio.liberable < 1e6}
+              onClick={liberarTodo}
+              title="Borra la cache de clips y los archivos intermedios del montaje (se regeneran si hace falta)">
+              {liberando ? <Loader2 size={15} className="animate-spin" /> : <Eraser size={15} />}
+              {espacio.liberable < 1e6 ? "Nada que liberar" : `Liberar espacio (${tamano(espacio.liberable)})`}
+            </button>
+          )}
+        </div>
       </div>
+
+      {aviso && (
+        <p className="mb-4 flex justify-between gap-3 rounded-xl bg-hundido p-3 text-sm text-tinta-2">
+          {aviso}
+          <button onClick={() => setAviso("")}><X size={16} /></button>
+        </p>
+      )}
 
       {error && (
         <p className="mb-4 flex justify-between gap-3 rounded-xl bg-error-suave p-3 text-sm text-error">
@@ -186,6 +236,9 @@ export default function Inicio() {
                     <Accion icono={<Play size={14} />} texto="Ver" disabled={!p.mp4} onClick={() => setViendo(p)} />
                     <Accion icono={<Download size={14} />} texto="Descargar" disabled={!p.mp4} href={p.mp4 ? url.descargar(p.id) : undefined} />
                     <Accion icono={<SquarePen size={14} />} texto="Editar" soloIcono derecha href={`/p/${p.id}`} />
+                    <Accion icono={<Eraser size={14} />} soloIcono disabled={p.trabajando || liberable(p.id) < 1e6}
+                      texto={liberable(p.id) < 1e6 ? "Nada que liberar" : `Liberar espacio (${tamano(liberable(p.id))})`}
+                      onClick={() => liberar(p)} />
                     <Accion icono={<Copy size={14} />} texto="Duplicar" soloIcono onClick={() => duplicar(p)} />
                     <Accion icono={<Pencil size={14} />} texto="Renombrar" soloIcono onClick={() => renombrar(p)} />
                     <Accion icono={<Trash2 size={14} />} texto="Borrar" soloIcono peligro onClick={() => borrar(p)} />
