@@ -51,6 +51,7 @@ PARALELO = 3
 # Ken Burns: `zoom` es el TOPE por plano; ademas nunca mas rapido que ZOOM_VEL por
 # segundo (4 s -> 3.2 %). Todas las piezas de un plano siguen el MISMO movimiento.
 ZOOM_VEL = 0.008
+LENTO_MAX = 1.25  # voz de corrido: cuanto se puede ralentizar un clip antes de congelar su final
 
 
 def _encaje(modo, w, h):
@@ -119,19 +120,26 @@ def _clip_congelado(ruta, frames, w, h, encaje, offset, destino, encuadre=1.0, e
     return args + ["-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
 
 
-def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuadre=1.0, extra="", sin_bucle=False):
+def _clip_video(ruta, frames, w, h, encaje, offset, dur_recurso, destino, encuadre=1.0, extra="", sin_bucle=False,
+                lento=False):
     """Si el clip no alcanza se repite en bucle; con `sin_bucle` (escenas de un prompt
-    maestro) se congela su ultimo fotograma en vez de volver a empezar."""
+    maestro) se congela su ultimo fotograma en vez de volver a empezar. Con `lento`
+    (voz de corrido) antes se ralentiza hasta LENTO_MAX y solo congela lo que falte."""
     necesita = frames / FPS
     bucle = dur_recurso and (offset + necesita) > dur_recurso + 0.05
     args = [medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
+    antes = ""
     if bucle and sin_bucle:
-        extra += f",tpad=stop_mode=clone:stop_duration={necesita - max(0.0, dur_recurso - offset) + 0.5:.3f}"
+        queda = max(0.05, dur_recurso - offset)
+        factor = min(LENTO_MAX, necesita / queda) if lento else 1.0
+        if factor > 1.001:
+            antes = f"setpts={factor:.4f}*PTS,"
+        extra += f",tpad=stop_mode=clone:stop_duration={max(0.0, necesita - queda * factor) + 0.5:.3f}"
     elif bucle:
         args += ["-stream_loop", "-1"]
     if offset > 0:
         args += ["-ss", f"{offset:.3f}"]
-    filtro = f"{_encaje(encaje, w, h)}{_cerrar(encuadre, w, h)}{extra},fps={FPS},format=yuv420p"
+    filtro = f"{antes}{_encaje(encaje, w, h)}{_cerrar(encuadre, w, h)}{extra},fps={FPS},format=yuv420p"
     return args + ["-i", ruta, "-filter_complex", filtro] + _salida_x264(frames, destino)
 
 
@@ -165,7 +173,8 @@ def _hacer_clip(plano, recurso, frames, w, h, p, destino):
                             _acercar(plano), tmp, encuadre, extra, total, desde)
     else:
         args = _clip_video(recurso["ruta"], frames, w, h, p["encaje"], offset,
-                           float(recurso.get("duracion") or 0), tmp, encuadre, extra, bool(plano.get("sin_bucle")))
+                           float(recurso.get("duracion") or 0), tmp, encuadre, extra, bool(plano.get("sin_bucle")),
+                           bool(plano.get("lento")))
     r = medios.correr(args, timeout=900)
     if r.returncode != 0 or not os.path.exists(tmp):
         raise RuntimeError(f"ffmpeg fallo en el plano {plano['i']} ({recurso['nombre']}): {r.stderr[-400:]}")
@@ -231,9 +240,15 @@ def ejecutar(ctx):
         if voz_clips:
             voz = {**voz, **voz_clips}
     elif ctx.params_de("escenas").get("fijas") and ctx.params_de("asignacion").get("modo") == "escenas":
-        # Prompt maestro con narracion: cada escena dura lo que su clip y la voz se acomoda.
-        ctx.avisar("ajustando la voz a la duracion de cada clip", 1)
-        planos, voz = _voz_a_clips(ctx, planos, voz, ctx.dir("render"))
+        if p.get("voz_continua", True):
+            # Prompt maestro, voz de corrido: la voz no se toca y cada escena dura lo que
+            # su texto. Clip largo -> se corta; corto -> se ralentiza y congela, nunca bucle.
+            ctx.avisar("voz de corrido: cada clip dura lo que su texto (sin bucles)", 1)
+            planos = [{**x, "sin_bucle": True, "lento": True} for x in planos]
+        else:
+            # Clips enteros: cada escena dura lo que su clip y la voz se acomoda.
+            ctx.avisar("ajustando la voz a la duracion de cada clip", 1)
+            planos, voz = _voz_a_clips(ctx, planos, voz, ctx.dir("render"))
     editorial = rapido and edicion.activa(p) and (not sin_voz or bool(voz.get("palabras")))
 
     # Editorial: Claude marca antes de los clips (las revelaciones deciden los
@@ -256,6 +271,8 @@ def ejecutar(ctx):
                 (_acercar(x),) + _en_plano(x) if x["tipo"] == "imagen" else 0)
         if x.get("sin_bucle"):
             base += ("sin_bucle",)
+        if x.get("lento"):
+            base += ("lento",)
         if x["encuadre"] != 1.0 or x["desde"]:  # sin subcortes la clave es la de siempre: cache intacta
             base += (x["encuadre"], x["desde"] if x["tipo"] == "video" else 0)
         if x["efecto"] or x["pasado"]:

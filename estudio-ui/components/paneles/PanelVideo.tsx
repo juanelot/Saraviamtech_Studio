@@ -73,6 +73,15 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
       </div>
 
       <div className="space-y-5">
+        {Array.isArray(p("escenas").fijas) && (p("escenas").fijas as unknown[]).length > 0 && p("asignacion").modo === "escenas" && p("voz").voz !== "ninguna" && (
+          <Tarjeta titulo="Clips y voz">
+            <Interruptor valor={r.voz_continua !== false} onChange={s("voz_continua")}
+              titulo="Voz de corrido"
+              detalle={r.voz_continua !== false
+                ? "La narracion suena seguida, sin pausas. Cada clip dura lo que su texto: si sobra se corta y si falta se ralentiza un poco y se queda en su ultimo fotograma. Nunca se repite."
+                : "Cada clip sale entero y su trozo de voz va al principio (hay pequenas pausas entre clips)."} />
+          </Tarjeta>
+        )}
         <Tarjeta titulo="Estilo de edicion">
           <div className="space-y-4">
             <Segmentado valor={intenso ? "intenso" : editorial ? "editorial" : "clasico"} onChange={s("edicion")}
