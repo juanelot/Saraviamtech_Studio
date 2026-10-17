@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Check, Copy, FileJson, FileText, Film, ImageIcon, Sparkles } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Deslizador, Segmentado, Tarjeta } from "../ui";
-import { mmss, url, type Escena } from "@/lib/api";
+import { api, mmss, url, type Escena, type EscenaFija } from "@/lib/api";
 import { ESFUERZOS, MODELOS } from "./PanelMaterial";
 
 export function Copiar({ texto, etiqueta = "Copiar" }: { texto: string; etiqueta?: string }) {
@@ -24,6 +24,71 @@ export function Copiar({ texto, etiqueta = "Copiar" }: { texto: string; etiqueta
     >
       {hecho ? <Check size={12} /> : <Copy size={12} />} {hecho ? "Copiado" : etiqueta}
     </button>
+  );
+}
+
+// Clips ya hechos (p. ej. las partes de una serie) + voz de corrido: cada clip va con
+// su trozo del guion por el NOMBRE del archivo, sin que Claude elija nada.
+function PorClip({ id, p, set, ocupado }: Pick<PanelProps, "id" | "p" | "set" | "ocupado">) {
+  const [texto, setTexto] = useState("");
+  const [trabajando, setTrabajando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const fijas = ((p("escenas").fijas as EscenaFija[]) || []).filter(Boolean);
+  const porClip = fijas.length > 0 && fijas.some((f) => f.clip);
+
+  async function repartir() {
+    setTrabajando(true);
+    setAviso(null);
+    try {
+      const r = await api.escenasPorClip(id, texto);
+      set("escenas", "generar", "no");
+      set("escenas", "fijas", r.fijas);
+      set("asignacion", "modo", "escenas");
+      set("asignacion", "fijados", null);
+      setAviso({ ok: true, texto: `${r.clips} clips en ${r.partes} ${r.partes === 1 ? "parte" : "partes"}, cada uno con su texto.`
+        + (r.avisos.length ? ` Ojo: ${r.avisos.join("; ")}.` : " Ahora pulsa Colocar escenas.") });
+    } catch (err) {
+      setAviso({ ok: false, texto: String((err as Error).message) });
+    } finally {
+      setTrabajando(false);
+    }
+  }
+
+  function editar(k: number, narracion: string) {
+    set("escenas", "fijas", fijas.map((f, i) => (i === k ? { ...f, narracion } : f)));
+  }
+
+  return (
+    <Tarjeta titulo="Escenas por clip (clips ya hechos + tu voz de corrido)">
+      <p className="text-sm text-tinta-2">
+        Para cuando ya tienes todos los clips (por ejemplo las partes de una serie) y la narracion grabada de una vez.
+        Nombra los clips <b>parte.clip</b> (1.1, 1.2 … 11.9) o solo <b>1, 2, 3…</b> y subelos en Contenido. El guion se
+        reparte en orden sin cambiar una palabra: cada parrafo es una parte y se divide entre sus clips. Cada clip va
+        con su texto por su nombre.
+      </p>
+      <textarea className="campo mt-3 min-h-[70px]" value={texto} onChange={(e) => setTexto(e.target.value)}
+        placeholder="Opcional: pega aqui el guion (una linea en blanco entre parte y parte). Vacio = el del paso Guion." />
+      <button className="boton boton-acento mt-3" disabled={ocupado || trabajando} onClick={repartir}>
+        <Film size={15} /> {trabajando ? "Repartiendo…" : porClip ? "Volver a repartir" : "Repartir guion entre mis clips"}
+      </button>
+      {aviso && <p className={`mt-3 text-sm ${aviso.ok ? "text-tinta-2" : "text-error"}`}>{aviso.texto}</p>}
+      {porClip && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm text-tinta-2">Ver o corregir el texto de cada clip ({fijas.length})</summary>
+          <p className="mt-2 text-xs text-tinta-3">
+            Puedes mover una frase de un clip al siguiente. No borres ni cambies palabras: el texto tiene que seguir siendo el de tu voz.
+          </p>
+          <div className="mt-3 space-y-2">
+            {fijas.map((f, k) => (
+              <div key={k} className="grid grid-cols-[3.5rem_1fr] items-start gap-2">
+                <span className="pt-2 text-xs font-semibold text-tinta-2">{f.clip}</span>
+                <textarea className="campo min-h-[52px] text-sm" value={f.narracion} onChange={(e) => editar(k, e.target.value)} />
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </Tarjeta>
   );
 }
 
@@ -74,6 +139,8 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
             : "Este paso no hace falta: en Contenido subes tus imagenes y videos y Claude elige cual va en cada frase."}
         </p>
       </Tarjeta>
+
+      {modoEscenas && <PorClip id={id} p={p} set={set} ocupado={ocupado} />}
 
       {modoEscenas && fijas.length > 0 && (
         <Tarjeta titulo="Escenas del prompt maestro">

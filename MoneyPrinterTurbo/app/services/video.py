@@ -482,6 +482,11 @@ def get_bgm_file(bgm_type: str = "random", bgm_file: str = ""):
             logger.warning(f"reject unsupported bgm file extension: {resolved_bgm_file}")
             return ""
 
+        if not os.path.isfile(resolved_bgm_file):
+            # La cancion se borro despues de elegirla: el video sale sin musica en vez de fallar.
+            logger.warning(f"bgm file not found, no music: {resolved_bgm_file}")
+            return ""
+
         return resolved_bgm_file
 
     if bgm_type == "random":

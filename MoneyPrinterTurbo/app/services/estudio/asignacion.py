@@ -142,10 +142,13 @@ def _por_escenas(escenas, recursos, preferir):
     orden_tipos = ["video", "imagen"] if preferir == "video" else ["imagen", "video"]
     con_numero = any(r.get("escena") is not None for r in recursos)
     eleccion, faltan, previo = {}, [], None
+    por_clip = {os.path.splitext(os.path.basename(r["nombre"]))[0]: r for r in recursos}
     for k, e in enumerate(escenas):
         n = e["scene_number"]
         r = None
-        if con_numero:
+        if e.get("clip"):  # escenas por clip: el archivo con ese nombre, sin mas
+            r, motivo = por_clip.get(e["clip"]), f"clip {e['clip']}"
+        elif con_numero:
             for tipo in orden_tipos:
                 r = buscar(n, tipo, "videos" if tipo == "video" else "images") or buscar(n, tipo)
                 if r:

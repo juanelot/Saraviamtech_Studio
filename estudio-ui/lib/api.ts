@@ -141,6 +141,8 @@ export function tamano(bytes: number) {
   return `${Math.max(0, Math.round(bytes / 1e3))} KB`;
 }
 
+export interface EscenaFija { n: number; narracion: string; clip?: string; imagen: string | null; video: string }
+
 export const api = {
   listar: () => pedir<{ proyectos: ResumenProyecto[] }>("/proyectos"),
   crear: (titulo: string) => pedir<Vista>("/proyectos", { method: "POST", ...json({ titulo }) }),
@@ -153,6 +155,10 @@ export const api = {
   ejecutar: (id: string, hasta: EtapaId, forzar: EtapaId[] = []) =>
     pedir<Vista>(`/proyectos/${id}/ejecutar`, { method: "POST", ...json({ hasta, forzar }) }),
   cancelar: (id: string) => pedir<{ cancelado: boolean }>(`/proyectos/${id}/cancelar`, { method: "POST" }),
+  // Reparte el guion entre los clips subidos por su nombre (1.1, 1.2... o 1, 2, 3...). Solo calcula.
+  escenasPorClip: (id: string, texto = "") =>
+    pedir<{ fijas: EscenaFija[]; partes: number; clips: number; avisos: string[] }>(
+      `/proyectos/${id}/escenas-por-clip`, { method: "POST", ...json({ texto }) }),
   // Liberar espacio: borra solo lo regenerable (cache de clips e intermedios del montaje).
   espacio: () => pedir<Espacio>("/espacio"),
   liberar: (id: string) => pedir<{ liberado: number; total: number; liberable: number }>(`/proyectos/${id}/liberar`, { method: "POST" }),

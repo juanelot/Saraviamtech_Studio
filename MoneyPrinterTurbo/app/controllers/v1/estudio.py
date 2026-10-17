@@ -20,7 +20,7 @@ from app.services import claude_cli
 from app.services.estudio import (almacen, asistente, creaciones, grafo, maestros, medios, recursos, referencias,
                                   series, voz_clonada)
 from app.services.estudio import miniatura as portada_video
-from app.services.estudio import limpieza
+from app.services.estudio import escenas_clip, limpieza
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -158,6 +158,21 @@ def duplicar(pid: str, body: dict = Body(default={})):
         shutil.copytree(src, dst, dirs_exist_ok=True,
                         ignore=lambda d, ns: [n for n in ns if os.path.isfile(os.path.join(d, n)) and not medios.tipo_de(n)])
     return _vista(nuevo["id"])
+
+
+@router.post("/estudio/proyectos/{pid}/escenas-por-clip", summary="Repartir el guion entre los clips subidos (por su nombre)")
+def escenas_por_clip(pid: str, body: dict = Body(default={})):
+    """body: {"texto"?: guion}. Sin texto usa el guion ya hecho (o el material).
+    Solo calcula: devuelve las escenas fijas para que la interfaz las guarde."""
+    proyecto = _existe(pid)
+    texto = (body.get("texto") or "").strip()
+    if not texto:
+        salida = (almacen.cargar_estado(pid)["etapas"].get("guion") or {}).get("salida") or {}
+        texto = salida.get("texto") or (proyecto["params"].get("guion") or {}).get("material") or ""
+    try:
+        return escenas_clip.calcular(pid, texto)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.post("/estudio/proyectos/{pid}/ejecutar", summary="Ejecutar hasta una etapa")

@@ -357,6 +357,24 @@ def stream_bgm_file(request: Request, file_name: str):
     )
 
 
+@router.delete("/musics/{file_name}", summary="Delete a BGM file")
+def delete_bgm_file(request: Request, file_name: str):
+    request_id = base.get_task_id(request)
+    song_dir = utils.song_dir()
+    try:
+        song_path = file_security.resolve_path_within_directory(song_dir, file_name)
+    except ValueError:
+        raise HttpException(
+            "", status_code=400, message=f"{request_id}: invalid music file name"
+        )
+    if not song_path.lower().endswith(".mp3") or not os.path.isfile(song_path):
+        raise HttpException(
+            "", status_code=404, message=f"{request_id}: music file not found"
+        )
+    os.remove(song_path)
+    return utils.get_response(200, {"file": os.path.basename(song_path)})
+
+
 @router.get("/stream/{file_path:path}")
 async def stream_video(request: Request, file_path: str):
     request_id = base.get_task_id(request)

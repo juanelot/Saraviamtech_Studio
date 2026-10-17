@@ -200,6 +200,8 @@ def fijas_en_tiempo(fijas, planos, duracion, tiempos):
             "image_prompt": " ".join(str(f.get("imagen") or "").split()),
             "video_prompt": " ".join(str(f.get("video") or "").split()),
         })
+        if f.get("clip"):  # escenas por clip: el archivo va por su nombre
+            escenas[-1]["clip"] = str(f["clip"])
     return escenas
 
 

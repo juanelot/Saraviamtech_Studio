@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Upload, Clapperboard } from "lucide-react";
+import { Download, Upload, Clapperboard, Trash2 } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Deslizador, Segmentado, Tarjeta } from "../ui";
 import { listarMusica, mmss, url } from "@/lib/api";
@@ -34,6 +34,17 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
     const j = await res.json().catch(() => null);
     setCanciones(await listarMusica());
     if (j?.data?.file) set("render", "musica", j.data.file);
+  }
+
+  async function borrarMusica(c: string) {
+    if (!confirm(`¿Borrar "${c}" del servidor? No se puede deshacer.`)) return;
+    const res = await fetch(`/api/motor/musics/${encodeURIComponent(c)}`, { method: "DELETE" });
+    if (!res.ok) {
+      alert("No se pudo borrar la cancion");
+      return;
+    }
+    if (r.musica === c) set("render", "musica", "random");
+    setCanciones(await listarMusica());
   }
 
   return (
@@ -256,6 +267,26 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
                 </button>
                 <input ref={subida} type="file" accept="audio/mpeg,.mp3" hidden onChange={(e) => subirMusica(e.target.files?.[0])} />
               </div>
+              {canciones.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-tinta-2">Mis canciones ({canciones.length}): escuchar o borrar</summary>
+                  <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {canciones.map((c) => (
+                      <li key={c} className="rounded-xl border border-linea p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-xs text-tinta-2" title={c}>{c}</span>
+                          <button className="boton boton-fantasma shrink-0 !px-2 !py-1 text-xs text-error" title="Borrar cancion"
+                            onClick={() => borrarMusica(c)}>
+                            <Trash2 size={13} /> Borrar
+                          </button>
+                        </div>
+                        <audio controls preload="none" className="mt-1 h-8 w-full" src={`/api/motor/musics/${encodeURIComponent(c)}`} />
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-tinta-3">Se borra del servidor para todos los proyectos. Si un video la usaba, al volver a montarlo sale sin esa musica.</p>
+                </details>
+              )}
             </Campo>
             <Campo etiqueta="Volumen musica">
               <Deslizador valor={Number(r.musica_volumen ?? 0.2)} min={0} max={1} paso={0.05} onChange={s("musica_volumen")}
