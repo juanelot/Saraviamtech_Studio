@@ -73,6 +73,14 @@ estudio_carpetas_permitidas = []
 # Vacio = sin voces clonadas (solo las de Microsoft).
 estudio_voz_clonada_url = ""
 
+# Estudio: generar las imagenes de las escenas en Google Flow (Nano Banana, gratis)
+# con tools/flow (Node 18+, Chrome y `npm install` en esa carpeta). SOLO en la
+# maquina local: en un VPS dejalo en false (sin Chrome ni sesion de Google).
+estudio_flow_habilitado = false
+estudio_flow_dir = ""             # ruta a tools/flow (vacio = la del repo)
+estudio_flow_modelo = "2"         # pro | 2 | lite
+estudio_flow_pasadas_extra = 2    # repasos automaticos de las escenas que fallaron
+
 ########## Pollinations AI Settings
 # Visit https://pollinations.ai/ to learn more
 # API Key is optional - leave empty for public access

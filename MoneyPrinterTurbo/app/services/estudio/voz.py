@@ -26,7 +26,7 @@ import unicodedata
 
 from app.config import config
 from app.services import subtitle, voice
-from app.services.estudio import medios, voz_clonada
+from app.services.estudio import componentes, medios, voz_clonada
 from app.services.image_task import merge_short_segments, parse_segments
 from app.utils import utils
 
@@ -125,10 +125,14 @@ def ejecutar(ctx):
 def _voz_tts(ctx, texto, audio, srt):
     """Voces de Microsoft (y demas TTS de MPT): dan el tiempo de cada palabra."""
     p = ctx.params
+    nombre = voice.parse_voice_name(p["voz"])
+    if componentes.es_voz_microsoft(nombre):
+        # Si Microsoft rechaza la version de edge-tts, avisar ya (no tras 3 x 120 s).
+        componentes.comprobar_edge_tts(nombre)
     ctx.avisar(f"sintetizando voz {p['voz']}", 10)
     sub_maker = voice.tts(
         text=texto,
-        voice_name=voice.parse_voice_name(p["voz"]),
+        voice_name=nombre,
         voice_rate=float(p["velocidad"]),
         voice_file=audio,
         voice_volume=1.0,  # el volumen se aplica en render (no obliga a re-sintetizar)

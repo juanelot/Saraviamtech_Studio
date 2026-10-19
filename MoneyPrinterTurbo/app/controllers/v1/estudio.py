@@ -20,7 +20,7 @@ from app.services import claude_cli
 from app.services.estudio import (almacen, asistente, creaciones, grafo, maestros, medios, recursos, referencias,
                                   series, voz_clonada)
 from app.services.estudio import miniatura as portada_video
-from app.services.estudio import escenas_clip, limpieza
+from app.services.estudio import escenas_clip, flow_gen, limpieza
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -343,6 +343,63 @@ def prompts_txt(pid: str):
             b.append(f"VIDEO: {e['video_prompt']}")
         bloques.append("\n".join(b))
     return PlainTextResponse("\n\n".join(bloques), headers={"Content-Disposition": 'attachment; filename="prompts.txt"'})
+
+
+# ------------------------------------------------------------------ Google Flow (solo local)
+
+def _flow():
+    if not flow_gen.habilitado():
+        raise HTTPException(404, "Flow no esta habilitado en esta maquina")
+
+
+@router.get("/estudio/flow", summary="¿Se puede generar en Google Flow aqui? (+ sesion)")
+def flow_info(comprobar: bool = Query(False, description="abrir Flow para ver si hay sesion")):
+    if not flow_gen.habilitado():
+        return {"habilitado": False}
+    salida = {"habilitado": True, "corriendo": flow_gen.corriendo()}
+    if comprobar:
+        try:
+            salida.update(flow_gen.sesion())
+        except Exception as e:  # noqa: BLE001
+            salida.update({"sesion": None, "motivo": str(e)})
+    return salida
+
+
+@router.post("/estudio/flow/conectar", summary="Abrir el Chrome de Flow para iniciar sesion")
+def flow_conectar():
+    _flow()
+    try:
+        return flow_gen.conectar()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, str(e))
+
+
+@router.get("/estudio/proyectos/{pid}/flow", summary="Progreso de la generacion en Flow, por escena")
+def flow_estado(pid: str):
+    _flow()
+    return flow_gen.estado(pid, _escenas(pid))
+
+
+@router.post("/estudio/proyectos/{pid}/flow/generar", summary="Generar en Flow las imagenes que faltan")
+def flow_generar(pid: str, body: dict = Body(default={})):
+    """body: {"reintentar_fallidas": true} — solo escenas sin imagen en recursos/images."""
+    _flow()
+    escenas = _escenas(pid)
+    aspecto = grafo.params_efectivos(_existe(pid), "render").get("aspecto") or "16:9"
+    try:
+        flow_gen.iniciar(pid, escenas, aspecto, bool(body.get("reintentar_fallidas", True)))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return flow_gen.estado(pid, escenas)
+
+
+@router.post("/estudio/proyectos/{pid}/flow/detener", summary="Detener la generacion en Flow")
+def flow_detener(pid: str, body: dict = Body(default={})):
+    _flow()
+    flow_gen.detener(pid, bool(body.get("forzar")))
+    return flow_gen.estado(pid, _escenas(pid))
 
 
 # ------------------------------------------------------------------ archivos

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, Film, FolderOpen, ImageIcon, Link2, Loader2, Trash2, Upload } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Tarjeta } from "../ui";
+import GenerarFlow from "./GenerarFlow";
 import { api, mini, url, type Recurso, type Subido } from "@/lib/api";
 
 // En que subcarpeta cae un archivo segun su ruta dentro de la carpeta elegida
@@ -28,6 +29,8 @@ export default function PanelRecursos({ id, vista, p, set, ejecutar, ocupado, re
 
   const cargar = useCallback(() => api.subidos(id).then((x) => setSubidos(x.archivos)), [id]);
   useEffect(() => { cargar(); }, [cargar, et.terminado]);
+  // Las imagenes de Flow caen en recursos/images: refrescar la lista y el estado de la etapa.
+  const alCambiarFlow = useCallback(() => { cargar(); recargar(); }, [cargar, recargar]);
 
   const catalogo = new Map<string, Recurso>();
   for (const x of et.salida?.recursos || []) catalogo.set(`${x.origen}:${x.nombre}`, x);
@@ -142,6 +145,7 @@ export default function PanelRecursos({ id, vista, p, set, ejecutar, ocupado, re
   return (
     <div className="space-y-5">
       <AvisoError texto={et.error} />
+      {modoEscenas && <GenerarFlow id={id} alCambiar={alCambiarFlow} />}
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div
           onDragOver={(e) => { e.preventDefault(); setArrastrando(true); }}

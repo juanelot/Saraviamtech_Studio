@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy, FileJson, FileText, Film, ImageIcon, Sparkles } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Deslizador, Segmentado, Tarjeta } from "../ui";
-import { api, mmss, url, type Escena, type EscenaFija } from "@/lib/api";
+import { api, flow, mmss, url, type Escena, type EscenaFija } from "@/lib/api";
 import { ESFUERZOS, MODELOS } from "./PanelMaterial";
 
 export function Copiar({ texto, etiqueta = "Copiar" }: { texto: string; etiqueta?: string }) {
@@ -101,6 +101,12 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
   const ediciones = (e.ediciones as Record<string, { image_prompt?: string; video_prompt?: string }>) || {};
   const escenas = et.salida?.escenas || [];
   const fijas = (e.fijas as unknown[]) || [];
+  // Con Flow habilitado (maquina local) las imagenes se generan solas en Contenido.
+  const [conFlow, setConFlow] = useState(false);
+  useEffect(() => { flow.info().then((i) => setConFlow(i.habilitado)).catch(() => {}); }, []);
+  const comoSeHacen = conFlow
+    ? "En Contenido, \"Generar en Flow\" crea la imagen de cada escena sola (o subes las tuyas): cada archivo va a su escena por su numero."
+    : "Tu generas el contenido en Flow (o con la extension, usando el script.json) y lo subes en el paso Contenido: cada archivo va a su escena por su numero.";
 
   // Que escenas ya tienen contenido subido (por numero de archivo).
   const recursos = vista.etapas.recursos.salida?.recursos || [];
@@ -127,15 +133,15 @@ export default function PanelEscenas({ id, vista, p, set, ejecutar, ocupado }: P
           valor={modoEscenas ? "escenas" : "recursos"}
           onChange={(v) => set("asignacion", "modo", v === "escenas" ? "escenas" : "claude")}
           opciones={[
-            { v: "escenas", t: "Las creo yo en Flow / extension, escena por escena" },
+            { v: "escenas", t: conFlow ? "Una imagen por escena (Flow automatico o subidas)" : "Las creo yo en Flow / extension, escena por escena" },
             { v: "recursos", t: "Ya tengo mis recursos (Claude elige)" },
           ]}
         />
         <p className="mt-3 text-sm text-tinta-2">
           {modoEscenas && fijas.length
-            ? "Tu generas el contenido de cada escena en Flow (o con la extension, usando el script.json) y lo subes en el paso Contenido: cada archivo va a su escena por su numero."
+            ? comoSeHacen
             : modoEscenas
-            ? "Claude corta el guion en escenas y escribe los prompts. Tu generas el contenido en Flow (o con la extension, usando el script.json) y lo subes en el paso Contenido: cada archivo va a su escena por su numero."
+            ? `Claude corta el guion en escenas y escribe los prompts. ${comoSeHacen}`
             : "Este paso no hace falta: en Contenido subes tus imagenes y videos y Claude elige cual va en cada frase."}
         </p>
       </Tarjeta>

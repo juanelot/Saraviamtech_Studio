@@ -173,6 +173,27 @@ export const api = {
     pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${nombre.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" }),
 };
 
+// Google Flow (solo en la maquina local): imagenes de las escenas generadas en Flow.
+export type EstadoEscenaFlow = "lista" | "pendiente" | "error" | "en_curso" | "sin_prompt";
+export interface EscenaFlow { escena: number; estado: EstadoEscenaFlow; archivo: string | null; intento: number | null; motivo: string }
+export interface EstadoFlow {
+  habilitado: boolean; corriendo: boolean; otro_proyecto: boolean; deteniendo: boolean;
+  resultado: "fin" | "detenido" | "sin_sesion" | "limite" | "error" | null; motivo: string;
+  pasada: number | null; inicio: number | null; fin: number | null;
+  cuenta: Record<EstadoEscenaFlow, number>; escenas: EscenaFlow[]; log: string[];
+}
+export interface InfoFlow { habilitado: boolean; corriendo?: boolean; chrome?: boolean; sesion?: boolean | null; ocupado?: boolean; motivo?: string }
+
+export const flow = {
+  info: (comprobar = false) => pedir<InfoFlow>(`/flow${comprobar ? "?comprobar=true" : ""}`),
+  conectar: () => pedir<{ ok: boolean }>("/flow/conectar", { method: "POST" }),
+  estado: (id: string) => pedir<EstadoFlow>(`/proyectos/${id}/flow`),
+  generar: (id: string, reintentar_fallidas = true) =>
+    pedir<EstadoFlow>(`/proyectos/${id}/flow/generar`, { method: "POST", ...json({ reintentar_fallidas }) }),
+  detener: (id: string, forzar = false) =>
+    pedir<EstadoFlow>(`/proyectos/${id}/flow/detener`, { method: "POST", ...json({ forzar }) }),
+};
+
 export interface ConceptoMiniatura {
   nombre: string; idea: string; texto: string; prompt: string; prompt_sin_texto: string;
   referencia_escena: number | null;

@@ -1,0 +1,11 @@
+{
+  "name": "estudio-flow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Genera las imagenes de las escenas del Estudio en Google Flow (Nano Banana), basado en srzGoogleFlowMCP.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}
