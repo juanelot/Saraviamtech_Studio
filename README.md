@@ -477,12 +477,11 @@ Saraviamtech_Studio/
 *Al 19 de octubre de 2026.*
 
 **Funcionando**
-- Estudio completo en local y en el VPS (studio.saraviamtech.com): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip y los tres estilos de edición.
+- Estudio completo en local y en el VPS (studio.saraviamtech.com, actualizado el 19-10-2026 con `edge-tts` 7.3.1): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip y los tres estilos de edición.
 - Generar en Google Flow en local. Se probó de punta a punta: 4 escenas, detener a mitad, continuar (solo generó las que faltaban) y montaje del video.
 - App Virales con Kie, imágenes locales y clips de stock, más `zenn_cli.py`.
 
 **Pendiente**
-- **VPS:** reconstruir `mpt-api` y `estudio-ui` con el commit de Flow y `edge-tts` 7.3.1. Hasta entonces, las voces de Microsoft fallan en el VPS (403). Los comandos están en [Despliegue en VPS](#despliegue-en-vps).
 - **Flow en inglés:** repetir la prueba de 5 escenas con la cuenta de Google en inglés.
 - **Flow, detección de fallos:** comprobar con un fallo real que se detecta la tesela de error (`flow-error-tile`). La de "generando" ya está verificada.
 - **Pantalla "Conectar Claude"** en el Estudio, para iniciar sesión de Claude desde la web.
