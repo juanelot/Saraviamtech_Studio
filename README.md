@@ -3,7 +3,14 @@
 Estudio de creación de video con IA desarrollado por **[Saraviamtech](https://github.com/juanelot)**.
 Va del tema o el guion al video final montado, con voz, escenas y prompts para Google Flow, subtítulos animados, edición con efectos y miniatura.
 
-Claude hace todo el trabajo de texto e imagen a través de **Claude CLI**, con tu suscripción de Claude y sin API key. El montaje se hace con ffmpeg en tu máquina o en tu VPS.
+Claude hace todo el trabajo de texto e imagen a través de **Claude CLI**, con tu suscripción de Claude y sin API key. El montaje se hace con ffmpeg en tu máquina o en tu VPS. En la máquina local, las imágenes de cada escena también se pueden generar **gratis y solas en Google Flow** (Nano Banana).
+
+El repositorio contiene dos aplicaciones sobre el mismo motor (MoneyPrinterTurbo):
+
+| App | Para qué | Dónde |
+|---|---|---|
+| **Estudio** (`estudio-ui`) | Videos por pasos con Claude: guion, voz, escenas, contenido, edición y miniatura | `localhost:3100` · https://studio.saraviamtech.com |
+| **Virales** (`mpt-ui`) | Videos rápidos de un solo formulario: clips de stock o imágenes IA de Kie (estilo Zenn) | `localhost:3000` · https://virales.saraviamtech.com |
 
 ---
 
@@ -11,11 +18,15 @@ Claude hace todo el trabajo de texto e imagen a través de **Claude CLI**, con t
 
 1. [Cómo se trabaja: los pasos](#cómo-se-trabaja-los-pasos)
 2. [Funciones](#funciones)
-3. [Conexión con Claude CLI (local y VPS)](#conexión-con-claude-cli)
-4. [Instalación local](#instalación-local)
-5. [Despliegue en VPS](#despliegue-en-vps)
-6. [Automatización por terminal](#automatización-por-terminal)
-7. [Estructura del proyecto](#estructura-del-proyecto)
+3. [Imágenes automáticas con Google Flow (solo local)](#imágenes-automáticas-con-google-flow-solo-local)
+4. [Conexión con Claude CLI (local y VPS)](#conexión-con-claude-cli)
+5. [Instalación local](#instalación-local)
+6. [Despliegue en VPS](#despliegue-en-vps)
+7. [Automatización por terminal](#automatización-por-terminal)
+8. [App Virales (mpt-ui)](#app-virales-mpt-ui)
+9. [Estructura del proyecto](#estructura-del-proyecto)
+10. [Estado actual y pendientes](#estado-actual-y-pendientes)
+11. [Historial](#historial)
 
 ---
 
@@ -27,15 +38,15 @@ Cada video es un **proyecto** que avanza por pasos. Puedes ir en orden o volver 
 |---|---|---|
 | **Material** | Pegas el tema, notas o fuentes; eliges la duración (hasta 3 h) y el idioma. | Tú |
 | **Guion** | Claude redacta la locución, o pegas tu guion tal cual. | Claude CLI |
-| **Voz** | Voces de Microsoft, voz clonada o tu propio audio ("Mi audio"). | TTS / Whisper |
+| **Voz** | Voces de Microsoft, voz clonada, tu propio audio ("Mi audio") o sin voz. | TTS / Whisper |
 | **Escenas** | Eliges el formato (16:9, 9:16 o 1:1) y el estilo; Claude corta el guion en escenas y escribe el prompt de imagen (y de video) de cada una. | Claude CLI |
-| **Contenido** | Subes lo que generaste en Flow, la carpeta de la extensión, un ZIP o tus propios recursos. | Tú |
+| **Contenido** | En local, pulsas **Generar en Flow** y las imágenes se crean solas. Si no, subes lo que generaste en Flow, la carpeta de la extensión, un ZIP o tus propios recursos. | Flow automático / tú |
 | **Ajuste** | Revisas qué imagen o clip va en cada plano y fijas a mano lo que quieras. | Claude CLI / tú |
 | **Video** | Eliges el estilo de edición (Clásico, Editorial o Intenso) y la música, y montas el video. | ffmpeg |
 | **Miniatura** | Claude propone conceptos y prompts para la miniatura; subes la final. | Claude CLI |
 
 ```
-material → guion → voz → escenas + prompts ─┐   ← contenido creado por ti en Flow / extensión
+material → guion → voz → escenas + prompts ─┐   ← contenido generado en Flow (automático en local) o subido por ti
                     recursos (tus archivos) ─┴→ ajuste → video → miniatura
 ```
 
@@ -55,7 +66,9 @@ material → guion → voz → escenas + prompts ─┐   ← contenido creado p
 - **Mi audio:** subes una narración ya grabada (tu voz, o la que hiciste con Clonar-voz) en WAV, MP3, M4A, OGG o FLAC, y se sincroniza sola.
   - Whisper saca el tiempo de cada palabra; si el guion coincide con lo que se oye, los subtítulos usan el texto del guion.
   - Tarda unos 8 s por minuto de audio en CPU (14,5 min en menos de 2 min).
+- **Sin voz:** para estilos sin narración (ASMR, por ejemplo). Cada escena dura lo que su tramo o su clip, suena el audio de los propios clips y se recortan sus silencios.
 - La narración se corta en **planos** según sus pausas; cada plano lleva una imagen o clip.
+- **Aviso de versión:** antes de sintetizar con Microsoft se hace una prueba de ~1 s. Si Microsoft rechaza la versión instalada de `edge-tts` (error 403, pasa cuando cambian su servicio), el paso falla al momento y explica cómo actualizar, en lugar de esperar 3 × 120 s.
 
 ### Escenas y prompts para Flow
 - **Formato:** se elige aquí y es el mismo para las imágenes y para el video final (16:9 por defecto). Se le pasa a Claude en todos los lotes, sin excepción.
@@ -76,7 +89,10 @@ material → guion → voz → escenas + prompts ─┐   ← contenido creado p
 ### Contenido y ajuste
 - Subes la carpeta de la extensión (`images/` y `videos/`), un ZIP o archivos sueltos. Cada archivo va a su escena por el número de su nombre (`1.png`, `scene_2.mp4`); si una escena tiene imagen y video, se usa el video.
 - **Con tus propios recursos** (sin escenas), Claude mira una miniatura de cada imagen o video, lo describe y elige qué recurso va en cada plano. Cualquier plano se puede fijar a mano.
+- **En local**, las imágenes de las escenas se pueden generar solas con **Generar en Flow** (ver [Imágenes automáticas con Google Flow](#imágenes-automáticas-con-google-flow-solo-local)).
+- **Escenas por clip:** si los clips ya están hechos (por ejemplo, las partes de una serie) y la voz es una sola pista, el guion se reparte entre los clips por su nombre (`4.8` = parte 4, clip 8; `1`, `scene_12` = una sola parte). El texto no cambia ni una palabra.
 - El botón **último fotograma** saca el último cuadro de un clip para encadenar segmentos en Flow.
+- **Liberar espacio:** borra solo lo que el Estudio puede rehacer (caché de clips e intermedios del montaje), de un proyecto o de todos. Nunca toca lo subido, el guion, la voz ni el video final.
 
 ### Video: montaje y estilos de edición
 El montaje se hace con ffmpeg: un clip por plano, en caché, y el acabado (voz, música y subtítulos) en una sola pasada. Hay tres estilos:
@@ -113,6 +129,66 @@ Claude marca las palabras clave, los datos y los momentos fuertes en una sola pa
 ### Asistente y Mis videos
 - **Asistente** (la burbuja de abajo a la derecha): un chat con tu cuenta de Claude que ve el estado del proyecto y puede leer el código para explicar un error. No puede leer `config.toml` ni credenciales.
 - **Mis videos:** cada tarjeta tiene portada y las acciones Ver, Descargar, Editar, Duplicar, Renombrar y Borrar.
+
+---
+
+## Imágenes automáticas con Google Flow (solo local)
+
+Automatiza el único paso manual del modo escenas. Genera **una imagen por escena** con Nano Banana en la web de Google Flow, que es gratis con tu cuenta de Google, y la deja directamente en el proyecto:
+
+```
+Antes:  Escenas → bajar script.json → extensión en Flow → bajar images/ → subirlas → Video
+Ahora:  Escenas → Contenido: "Generar en Flow" (automático, retomable)              → Video
+```
+
+- **Solo imágenes.** Los videos en Flow gastan créditos (Veo), así que no se automatizan.
+- **Solo en la máquina local.** Hace falta un Chrome con tu sesión de Google. En el VPS queda desactivado y el Estudio se ve como siempre.
+
+### Cómo se usa
+1. En **Escenas**, elige *"Una imagen por escena (Flow automático o subidas)"* y genera los prompts de imagen.
+2. En **Contenido** aparece la tarjeta **Generar en Google Flow**. Pulsa **Generar en Flow (N pendientes · M listas)**.
+3. La cuadrícula muestra cada escena: ✓ lista, ✗ fallida (pasa el ratón para ver el motivo), girando = en curso, número = pendiente. Las imágenes aparecen en la lista de archivos según se crean.
+4. **Detener** termina la imagen en curso y para (**Cortar ya** la abandona). **Continuar** genera solo lo que falta.
+5. Cuando estén todas, pasa a **Video**.
+
+Tarda unos 30 s por imagen: 200 escenas son unas 2 h. Salen a 1K completo (768×1376 en 9:16).
+
+### Cómo se comporta
+Imita a la extensión "AI Content Generator":
+
+| Qué | Comportamiento |
+|---|---|
+| Escena hecha | La que tiene una imagen con su número en `recursos/` (en `images/` o suelta). **El archivo manda**: no hay otro estado que pueda perderse. |
+| Al empezar | Solo las pendientes. Lo ya generado o subido a mano no se repite. |
+| Intentos | 4 por escena, hasta 2 min cada uno. Pausa de 4 s tras una imagen y de 4,5 s tras un fallo. |
+| Fallidas | Al final de la vuelta se repasan solas, hasta 2 veces más. Las que sigan fallando quedan pendientes para la próxima corrida. |
+| Límite de Flow | Si Flow avisa de cuota o límite, el lote se **pausa** sin gastar intentos. |
+| Apagar o reiniciar | No se pierde nada. Cada imagen se escribe como `.part` y se renombra al terminar. |
+| Concurrencia | Una sola generación a la vez en toda la máquina (lock entre procesos). |
+| Idioma de Flow | Nada depende de los textos de la web (botones por icono, ajustes por valor, éxito y error por elementos), salvo el aviso de límite: sus frases en es, en, pt, fr, it y de están en `tools/flow/textos.js`. |
+
+### Instalación (una vez por máquina)
+1. Node.js 18+ y Google Chrome.
+2. `npm install` en `tools/flow/`.
+3. En `MoneyPrinterTurbo/config.toml`:
+   ```toml
+   estudio_flow_habilitado = true    # false (o sin poner) en el VPS
+   estudio_flow_dir = ""             # ruta a tools/flow (vacío = la del repo)
+   estudio_flow_modelo = "2"         # pro | 2 | lite  (Nano Banana Pro, 2.1, 2 Lite)
+   estudio_flow_pasadas_extra = 2    # repasos automáticos de las fallidas
+   ```
+4. Reinicia el backend. En Contenido pulsa **Conectar Flow** e inicia sesión con tu cuenta de Google en el Chrome que se abre (perfil propio en `%LOCALAPPDATA%\FlowImageChrome`). Solo hace falta una vez.
+
+### Piezas
+- `tools/flow/`: generador en Node con Playwright, que se conecta por CDP a un Chrome dedicado (puerto 9333). Está basado en srzGoogleFlowMCP.
+  - `lote.js`: el lote. Escribe su progreso en líneas JSON.
+  - `cli.js`: abre el Chrome (`chrome`) y comprueba la sesión (`sesion`).
+  - `flow.js`: maneja la web de Flow.
+  - `textos.js`: las frases de límite.
+  - Se puede usar sin el Estudio (ver su `README.md`).
+- Backend: `app/services/estudio/flow_gen.py` lanza el lote, lee su progreso y lo guarda en `proyectos/<id>/flow/estado.json`.
+- Rutas: `GET /estudio/flow`, `POST /estudio/flow/conectar`, y `GET`, `POST …/flow/generar` y `POST …/flow/detener` bajo `/estudio/proyectos/{id}`. Con Flow desactivado responden 404.
+- Interfaz: `estudio-ui/components/paneles/GenerarFlow.tsx`.
 
 ---
 
@@ -223,6 +299,15 @@ claude_cli_path = ""          # vacío = buscar `claude` en el PATH
 | `sin respuesta en N s` | Tarea muy larga con esfuerzo alto | Baja el esfuerzo a `low` o `medium`, o sube `claude_cli_timeout` |
 | La sesión desaparece al actualizar el VPS | Falta el volumen `/root/mpt-data/claude` | Revisa el volumen y `CLAUDE_CONFIG_DIR` en `docker-stack.yml` |
 
+### Otros problemas frecuentes
+
+| Mensaje | Causa | Solución |
+|---|---|---|
+| `Microsoft rechazo la conexion de voz (403)…` (o la voz tarda minutos y falla) | Microsoft cambió su servicio y la versión de `edge-tts` quedó vieja. Pasó en octubre de 2026 con la 7.2.7. | Local: `uv pip install --python .venv/Scripts/python.exe -U edge-tts`, pon la versión en `requirements.txt` y reinicia el backend. VPS: reconstruye la imagen `mpt-api`. |
+| `falta instalar el generador: ejecuta npm install…` | Flow habilitado sin dependencias | `npm install` en `tools/flow/` |
+| Generar en Flow: "no tiene sesión de Google" | El Chrome de Flow no tiene sesión iniciada | **Conectar Flow**, inicia sesión y pulsa **Continuar** |
+| Generar en Flow: "Flow avisó de un límite de uso" | Cuota de Flow agotada por ahora | Espera y pulsa **Continuar**. Lo hecho no se pierde |
+
 ---
 
 ## Instalación local
@@ -258,7 +343,10 @@ Opciones del Estudio en `config.toml` (`[app]`):
 ```toml
 estudio_carpetas_permitidas = []   # carpetas del servidor que el Estudio puede leer como recursos
 estudio_voz_clonada_url = ""       # URL del servidor Clonar-voz (vacío = solo voces de Microsoft)
+estudio_flow_habilitado = false    # true para generar las imágenes en Google Flow (ver su sección)
 ```
+
+**Opcional, Google Flow:** `cd tools/flow && npm install`, y luego `estudio_flow_habilitado = true` (ver [Imágenes automáticas con Google Flow](#imágenes-automáticas-con-google-flow-solo-local)).
 
 La primera vez que uses **Mi audio**, Whisper descarga su modelo (unos 150 MB). Hace falta internet solo esa vez.
 
@@ -280,7 +368,18 @@ docker stack deploy -c docker-stack.yml mpt
 - **Dominio:** `studio.saraviamtech.com` (label `Host(...)` del servicio `estudio`), con auth básica de Traefik.
 - **Sesión de Claude:** ver [En el VPS](#en-el-vps-docker-swarm).
 - **Datos persistentes:** proyectos en `/root/mpt-data/storage/estudio/`, recursos del servidor en `/root/mpt-data/recursos` (dentro del contenedor, `/recursos`).
-- **Actualizar:** `git pull`, reconstruir las dos imágenes y luego `docker service update --force mpt_api` y `docker service update --force mpt_estudio`.
+- **Stack real:** Portainer, stack `mpt` con los servicios `api` (motor compartido), `ui` (Virales) y `estudio`. El código está en `/root/saraviamtech-studio`, clonado de este repo (`main`). Se actualiza desde el editor de Portainer, no con `docker stack deploy`.
+- **Actualizar:**
+  ```bash
+  cd /root/saraviamtech-studio && git pull
+  docker tag mpt-api:latest mpt-api:backup-$(date +%Y%m%d)        # respaldo para volver atrás
+  docker tag estudio-ui:latest estudio-ui:backup-$(date +%Y%m%d)
+  docker build -t mpt-api:latest ./MoneyPrinterTurbo
+  docker build -t estudio-ui:latest --build-arg MPT_API_URL=http://api:8080 ./estudio-ui
+  docker service update --force mpt_api mpt_estudio
+  ```
+  Antes de actualizar, comprueba que no haya nada renderizando: reiniciar `api` corta los trabajos en curso.
+- **Google Flow:** en el VPS queda desactivado (`estudio_flow_habilitado` sin poner o en `false`).
 
 ---
 
@@ -317,6 +416,33 @@ python maestros_cli.py video --maestro "paper craft" --creacion <id> --narracion
 
 Sale con código 0 si está listo, 1 si hay un error y 2 si el flujo espera una respuesta (contéstala con `responder`).
 
+**`zenn_cli.py`** genera videos de la app Virales (no del Estudio). Tiene tres modos y los mismos controles que su formulario:
+
+```bash
+# Por defecto ataca https://virales.saraviamtech.com/api/mpt/v1 (MPT_API_BASE para cambiarlo)
+python zenn_cli.py --perfil perfil_zenn.json --tema "Mundial 2026" --guion g.txt --max-images 207   # imágenes Kie
+python zenn_cli.py --modo local --tema "Mi video" --guion g.txt --imagenes-dir ./mis_imagenes        # tus imágenes
+python zenn_cli.py --modo video --tema "Datos del espacio" --fuente-clips pexels                     # clips de stock
+python zenn_cli.py --perfil perfil_zenn.json --lote temas.txt --parrafos 30                          # un tema por línea
+```
+
+Espera hasta 2 h, sin el corte de 40 min del navegador. Muestra un latido cada 2 min para que el agente que lo lanzó no crea que se colgó. Las opciones de la línea de comandos mandan sobre el perfil, y hay una plantilla en `perfil_zenn.example.json`.
+
+---
+
+## App Virales (mpt-ui)
+
+Es la primera app del repositorio: un formulario para sacar videos rápido con el motor de MoneyPrinterTurbo, sin pasos. Corre en `localhost:3000` (`cd mpt-ui && npm install && npm run dev`) y en https://virales.saraviamtech.com. La interfaz está en español e inglés.
+
+- **Crear video:** tema o guion → voz → clips de Pexels, Pixabay o locales → subtítulos, música y montaje.
+- **Video de imágenes (estilo Zenn):** una imagen "tipo MS Paint" por frase de la voz, generada con **Kie AI** (`kie_api_keys` en `config.toml`) o con tus imágenes. Cada imagen dura exactamente su tramo de voz.
+  - Cuesta unos 6 créditos de Kie por imagen 1K.
+  - Kie admite como mucho 20 peticiones nuevas cada 10 s, y el resto se rechaza (`kie_max_concurrency = 6` va sobrado).
+- **Música propia:** subir, elegir y escuchar MP3. Se guardan en un volumen persistente en el VPS.
+- **Mis videos:** biblioteca con reproductor y descarga.
+
+Un render de 1080×1920 con subtítulos tarda de 5 a 15 min en CPU. Si el navegador avisa de un *timeout* a los 40 min, el backend sigue trabajando: no relances el video, porque vuelve a gastar créditos.
+
 ---
 
 ## Estructura del proyecto
@@ -329,13 +455,58 @@ Saraviamtech_Studio/
 │   └── lib/                        # API, marca (marca.ts), voces
 ├── MoneyPrinterTurbo/              # Backend (FastAPI, puerto 8080): motor de video + API
 │   ├── app/services/estudio/       # Una etapa por archivo; el grafo de etapas en grafo.py
+│   │   ├── flow_gen.py             # Generar en Google Flow (lanza tools/flow/lote.js)
+│   │   └── componentes.py          # Prueba rápida de edge-tts (aviso de versión)
 │   ├── app/services/claude_cli.py  # Conexión con Claude CLI
+│   ├── app/services/kie_image.py · image_task.py   # Video de imágenes (Kie / Zenn) de Virales
 │   ├── app/controllers/v1/estudio.py   # Rutas /api/v1/estudio/*
 │   ├── storage/estudio/            # Proyectos, maestros, catálogo
-│   └── config.toml
-├── estudio_cli.py · maestros_cli.py    # Automatización por terminal
+│   └── config.toml                 # Privado (fuera de git); plantilla en config.example.toml
+├── tools/flow/                     # Generador de Google Flow (Node + Playwright, solo local)
+├── mpt-ui/                         # App Virales (Next.js, puerto 3000)
+├── prompts_maestros/               # Prompts maestros de ejemplo
+├── estudio_cli.py · maestros_cli.py · zenn_cli.py   # Automatización por terminal
 ├── docker-stack.yml · DEPLOY.md        # Despliegue en VPS
+└── PLAN_FLOW_LOCAL.md              # Diseño de la integración con Flow
 ```
+
+---
+
+## Estado actual y pendientes
+
+*Al 19 de octubre de 2026.*
+
+**Funcionando**
+- Estudio completo en local y en el VPS (studio.saraviamtech.com): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip y los tres estilos de edición.
+- Generar en Google Flow en local. Se probó de punta a punta: 4 escenas, detener a mitad, continuar (solo generó las que faltaban) y montaje del video.
+- App Virales con Kie, imágenes locales y clips de stock, más `zenn_cli.py`.
+
+**Pendiente**
+- **VPS:** reconstruir `mpt-api` y `estudio-ui` con el commit de Flow y `edge-tts` 7.3.1. Hasta entonces, las voces de Microsoft fallan en el VPS (403). Los comandos están en [Despliegue en VPS](#despliegue-en-vps).
+- **Flow en inglés:** repetir la prueba de 5 escenas con la cuenta de Google en inglés.
+- **Flow, detección de fallos:** comprobar con un fallo real que se detecta la tesela de error (`flow-error-tile`). La de "generando" ya está verificada.
+- **Pantalla "Conectar Claude"** en el Estudio, para iniciar sesión de Claude desde la web.
+- **VPS:** la RAM va justa al renderizar (~3 GB libres en los picos).
+
+---
+
+## Historial
+
+| Fecha | Cambio |
+|---|---|
+| 2026-06-04 | Primera versión: MoneyPrinterTurbo, edición Saraviamtech (app Virales), música y fuentes por Git LFS |
+| 2026-06-11 | Despliegue en VPS (Portainer + Traefik + Swarm) e interfaz en español e inglés |
+| 2026-06 | Video de imágenes estilo Zenn con Kie AI y `zenn_cli.py` (modos kie, local y video) |
+| 2026-07-18 | Música propia (subir, elegir y escuchar), mejoras de subtítulos y latido en el CLI |
+| 2026-09-29 | **Estudio por etapas** con Claude CLI: escenas y prompts para Flow, voz clonada, miniatura, edición editorial, asistente, prompts maestros y creaciones |
+| 2026-09-30 | Hojas de referencia, segmentos encadenados, series con biblia y `maestros_cli.py` |
+| 2026-10-04 | Estilo de edición Intenso, textos en el idioma del video y Mi audio con Whisper |
+| 2026-10-07 | Claude CLI en modo ligero: de unos 14.000 a unos 200 tokens fijos por llamada |
+| 2026-10-10 | Estudio desplegado en studio.saraviamtech.com, zoom suave y escenas exactas |
+| 2026-10-12 | Sin voz (suena el audio de los clips, con recorte de silencios) y maestro Stickman |
+| 2026-10-13 | Botón Liberar espacio |
+| 2026-10-17 | Voz de corrido en escenas de prompt maestro, escenas por clip y borrar música |
+| 2026-10-19 | **Generar en Google Flow** (solo local), aviso de versión de `edge-tts` y paso a `edge-tts` 7.3.1 |
 
 ---
 
