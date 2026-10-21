@@ -203,6 +203,96 @@ def editar(mid, cambios):
     return cargar(mid)
 
 
+def reemplazar_texto(mid, texto, origen=None, modelo=None, esfuerzo=None):
+    """Nueva version del prompt maestro: cambia el texto y lo vuelve a desglosar.
+    Las creaciones, series, notas y portada se conservan."""
+    texto = (texto or "").strip()
+    if len(texto) < 200:
+        raise ErrorMaestro("el prompt maestro es demasiado corto (minimo 200 caracteres)")
+    if len(texto) > MAX_CHARS:
+        raise ErrorMaestro(f"el prompt maestro es demasiado largo (maximo {MAX_CHARS // 1000} mil caracteres)")
+    if mid in _en_curso:
+        raise ErrorMaestro("ya se esta analizando")
+    with almacen.candado(f"maestro-{mid}"):
+        meta = almacen.leer_json(_ruta_meta(mid))
+        if not meta:
+            raise ErrorMaestro("prompt maestro no encontrado")
+        with open(os.path.join(_dir(mid), "original.txt"), "w", encoding="utf-8") as f:
+            f.write(texto)
+        meta.update(caracteres=len(texto), actualizado=time.time(), estado="pendiente", error=None)
+        if origen:
+            meta["origen"] = origen
+        almacen.escribir_json(_ruta_meta(mid), meta)
+    analizar(mid, modelo, esfuerzo)
+    return cargar(mid)
+
+
+# ------------------------------------------------------------------ llevar a otra maquina
+
+ARCHIVOS_EXPORTABLES = ("maestro.json", "original.txt", "portada.jpg")
+
+
+def exportar(ids=None) -> bytes:
+    """ZIP con <id>/maestro.json, original.txt y portada.jpg de cada maestro (sin creaciones)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for m in listar():
+            if ids and m["id"] not in ids:
+                continue
+            for nombre in ARCHIVOS_EXPORTABLES:
+                ruta = os.path.join(_dir(m["id"], crear=False), nombre)
+                if os.path.isfile(ruta):
+                    z.write(ruta, f"{m['id']}/{nombre}")
+    return buf.getvalue()
+
+
+def importar(datos: bytes):
+    """Carga un ZIP de exportar(). Mismo id = se actualiza (texto, ficha, portada) sin tocar
+    sus creaciones; id nuevo = se crea con su ficha ya hecha (no llama a Claude)."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(datos))
+    except zipfile.BadZipFile:
+        raise ErrorMaestro("el archivo no es un ZIP de prompts maestros")
+    grupos = {}
+    for nombre in z.namelist():
+        partes = nombre.strip("/").split("/")
+        if len(partes) == 2 and partes[1] in ARCHIVOS_EXPORTABLES and almacen.PATRON_ID.match(partes[0]):
+            grupos.setdefault(partes[0], {})[partes[1]] = nombre
+    hechos = []
+    for mid, archivos in grupos.items():
+        if "maestro.json" not in archivos or "original.txt" not in archivos or mid in _en_curso:
+            continue
+        try:
+            meta = json.loads(z.read(archivos["maestro.json"]).decode("utf-8"))
+            texto = z.read(archivos["original.txt"]).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if not isinstance(meta, dict) or not texto.strip() or len(texto) > MAX_CHARS:
+            continue
+        with almacen.candado(f"maestro-{mid}"):
+            previo = almacen.leer_json(os.path.join(_dir(mid), "maestro.json")) or {}
+            with open(os.path.join(_dir(mid), "original.txt"), "w", encoding="utf-8") as f:
+                f.write(texto)
+            if "portada.jpg" in archivos:
+                with open(os.path.join(_dir(mid), "portada.jpg"), "wb") as f:
+                    f.write(z.read(archivos["portada.jpg"]))
+            ficha = meta.get("ficha") if isinstance(meta.get("ficha"), dict) else None
+            almacen.escribir_json(_ruta_meta(mid), {
+                "id": mid, "nombre": str(meta.get("nombre") or _nombre_probable(texto))[:120],
+                "origen": str(meta.get("origen") or "importado"), "creado": previo.get("creado") or meta.get("creado") or time.time(),
+                "actualizado": time.time(), "caracteres": len(texto),
+                "estado": "listo" if ficha else "pendiente", "error": None, "ficha": ficha,
+                "notas": str(meta.get("notas") or previo.get("notas") or "")[:5000],
+                **({"analizado": meta["analizado"]} if meta.get("analizado") else {}),
+            })
+        if not ficha:
+            analizar(mid)
+        hechos.append({"id": mid, "nombre": str(meta.get("nombre") or ""), "nuevo": not previo})
+    if not hechos:
+        raise ErrorMaestro("el ZIP no trae ningun prompt maestro valido")
+    return hechos
+
+
 def poner_portada(mid, datos: bytes):
     """Portada elegida por la persona (sustituye a la del .docx)."""
     try:

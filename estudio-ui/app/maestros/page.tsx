@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BookOpen, FileText, Loader2, Mic, MicOff, Upload } from "lucide-react";
+import { BookOpen, Download, FileText, Loader2, Mic, MicOff, PackageOpen, Upload } from "lucide-react";
 import { AvisoError } from "@/components/ui";
 import { maestros, type ResumenMaestro } from "@/lib/api";
 
@@ -16,6 +16,8 @@ export default function PaginaMaestros() {
   const [texto, setTexto] = useState("");
   const [nombre, setNombre] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const inputZip = useRef<HTMLInputElement>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const cargar = useCallback(() => {
     return maestros.listar().then((r) => setLista(r.maestros)).catch((e) => setError(String(e.message || e)));
@@ -45,6 +47,21 @@ export default function PaginaMaestros() {
     }
   }
 
+  async function importar(archivo: File | null) {
+    if (!archivo) return;
+    setSubiendo(true);
+    setError(null);
+    try {
+      const r = await maestros.importar(archivo);
+      const nuevos = r.importados.filter((x) => x.nuevo).length;
+      setAviso(`Importados ${r.importados.length} (${nuevos} nuevos, ${r.importados.length - nuevos} actualizados).`);
+      await cargar();
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    }
+    setSubiendo(false);
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-4 pb-24 pt-12">
       <section className="mb-10 grid gap-8 md:grid-cols-[1.2fr_1fr] md:items-end">
@@ -67,6 +84,19 @@ export default function PaginaMaestros() {
               <button className="boton boton-fantasma mt-2 w-full justify-center text-sm" onClick={() => setPegar(true)}>
                 <FileText size={14} /> o pegar el texto
               </button>
+              <div className="mt-3 flex gap-2 border-t border-linea pt-3">
+                <a className="boton boton-linea flex-1 justify-center text-sm" href={maestros.exportar()} download
+                  title="Descarga un ZIP con todos los prompts maestros para llevarlos a otra maquina">
+                  <Download size={14} /> Exportar
+                </a>
+                <button className="boton boton-linea flex-1 justify-center text-sm" disabled={subiendo}
+                  title="Carga el ZIP exportado desde otra maquina" onClick={() => inputZip.current?.click()}>
+                  <PackageOpen size={14} /> Importar
+                </button>
+                <input ref={inputZip} type="file" accept=".zip" hidden
+                  onChange={(e) => { importar(e.target.files?.[0] || null); e.target.value = ""; }} />
+              </div>
+              {aviso && <p className="mt-2 text-xs text-tinta-2">{aviso}</p>}
             </>
           ) : (
             <div className="space-y-2">

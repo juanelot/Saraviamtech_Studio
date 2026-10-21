@@ -32,6 +32,8 @@ Require these before planning:
     - `Style 2A (Modern Studio Tech)`: pure white high-key studio, subtle light-gray perspective grid, floating cyan/blue glass UI
     - `Style 2B (Cinematic Story)`: full-color narrative environments, cinematic lighting & depth
   - `Style 3 (Prehistoric Hand-Drawn / Dark Comedy)`: expressive white filled heads, black stick limbs, animal-hide costumes and earthy prehistoric settings; story-specific casting
+  - `Style 4 (Cozy Storytelling / 治愈故事风)`: expressive minimalist white-filled characters with dark stick limbs in full-color 2D cartoon environments; varied story locations and cinematic shot changes
+  - `Style 5 (Historical Cartoon / 历史卡通风)`: white-filled round heads, simple black oval eyes and thin black stick limbs in era-specific costume, with cel shading and full-color painterly historical settings
 
 If aspect ratio or visual style is missing, ask for all missing items in one concise message and stop. If duration is omitted, default to 60 seconds (6 clips). If a user provides a duration not divisible by 10, round to the nearest 10-second multiple. If a user specifies only light or dark theme, default to Style 1. Never select an aspect ratio or style silently. Do not re-ask choices already supplied.
 
@@ -51,6 +53,10 @@ Topic approval, schedule pressure, or approval of an older draft is not approval
 
 For Style 3, read `references/prehistoric-dark-comedy.md` before planning. Its casting, story rhythm, palette and continuity rules override the generic no-idle, device-count and five-stage discussion-ending rules below. Use setup → escalation → ironic payoff for narrative shorts; do not force a discussion question into a visual punchline. This is a visual storytelling style, not a claim about actual prehistory.
 
+For Style 4, read `references/cozy-storytelling.md` before planning and prompt assembly. Default each new ten-second segment to a different recognizable story setting, unless the user explicitly requests one location or approves a deliberate return. Preserve characters, drawing grammar, important props, movement direction and narrator—not an identical table or background across the whole video. Name the location cuts and any time jumps in Phase A. This is full-color cartoon storytelling, not a hand-drawn/sketchbook mode and not a claim of photorealistic 3D backgrounds.
+
+For Style 5, read `references/historical-cartoon.md` before planning and prompt assembly. Keep its drawing grammar fixed while changing the era pack. Confirm story-specific cast cards, setting, palette, props and exact narration in Phase A; repeat the full approved style and visible cast descriptions in every Phase B prompt. Its historical palette, music, physical-action pacing and story ending override generic three-color, mandatory-piano, device-count, no-idle and discussion-ending rules below. Apply the existing shared voice contract; do not apply this style's character rules to Styles 1–4.
+
 - Structure every script using the 5-stage high-completion flow:
   1. **Golden Hook**: Instant curiosity trigger via a counter-intuitive question or visual paradox. Timing is flexible based on duration (e.g. within the first 2–5 seconds in short videos, up to 10–15s in long videos); never open with generic platitudes.
   2. **Disrupting Assumptions**: State what everyone thinks is true, then shatter it in one sentence to build cognitive conflict.
@@ -60,7 +66,7 @@ For Style 3, read `references/prehistoric-dark-comedy.md` before planning. Its c
 - Scale English VO word count to approximately 20–25 words per 10-second clip across N clips (e.g. ~60–75 words for 30s / 3 clips, ~120–150 words for 60s / 6 clips, ~360–450 words for 3min / 18 clips, ~600–750 words for 5min / 30 clips).
 - Give each clip three timed beats, at least four relevant visual devices, and a visual change every two to three seconds.
 - Keep character proportions, line weight, style, and narrator consistent across all clips.
-- For Style 1, freeze the full character anchor from `references/style-catalog.md` and repeat it verbatim in every clip. Do not replace it with "same character", ellipses, numeric anatomy recipes or clip-specific appearance descriptions. Occasional simple line expressions are allowed; head fill and body topology stay unchanged. Treat generated consistency as a visual acceptance check, not a guarantee from repeated text.
+- For Style 1, freeze the concise character anchor from `references/style-catalog.md` and repeat it verbatim in every clip. Keep two arms and two legs, one current pose per limb, stable proportions and uniform medium line weight; a moving arm replaces its previous pose rather than adding another arm. Keep the figure monochrome and saturated accents on props/graphics. Do not replace the anchor with "same character", ellipses, numeric anatomy recipes, skeleton/path instructions or clip-specific appearance descriptions. Occasional simple line expressions are allowed; the head remains hollow. Keep rich actions and effects separate from character design. Treat generated consistency as a visual acceptance check, not a guarantee from repeated text.
 - For Style 1, limit the video to three saturated accent colors named with ordinary descriptive words (e.g. vivid red, electric blue, warm gold). For light theme, enforce a flat, digitally pure-white canvas with no textures, gradients, or 3D depth.
 - For Style 2 (Modern Beanie Zeke), enforce character consistency:
   - Clip 1: `A minimalist 2D animated stick figure wearing a bright red beanie (smooth knit, no pom-pom) and a yellow t-shirt, with simple black stick limbs and shorts. Simple black lines, vibrant colors, smooth 2D animation style.`
@@ -68,12 +74,13 @@ For Style 3, read `references/prehistoric-dark-comedy.md` before planning. Its c
   - No detailed eyes, pupils, or photorealistic features (avoids bug-eye deformation).
 - For Style 2A (Modern Studio Tech), enforce: `in a modern bright white studio space with subtle light-gray perspective grid lines on the floor plane. High-key studio lighting, clean white negative space, sleek glowing cyan and electric blue glass holographic UI elements.` Always include negative constraint: `STRICTLY MINIMALIST, NO CIRCUIT BOARD TEXTURES, NO SCI-FI WALL PANELS, NO CRACKED CONCRETE.`
 - For Style 2B (Cinematic Story), specify full-color narrative setting and cinematic lighting while preserving the 2D animated stick-figure character design.
+- For Style 4, freeze each approved character's complete anchor and repeat it in every clip where that role appears. Separate static design from first-frame positions, timed prop transfers and final states; changing scene does not reset prop ownership or the narrator. Read its reference for shot variety and visual acceptance checks.
 - For all styles, avoid abstract liquid/shape morphing. Drive motion with concrete character actions (leaping, touching glass, drawing luminous lines, opening doors) with timed beats across `[0–3s]`, `[3–7s]`, and `[7–10s]`. Never leave the character idle.
 - For **all styles**, apply `references/voice-continuity.md`: choose a complete video-level voice profile in Phase A, then repeat its full frozen English block verbatim in every clip. Different videos may choose different voices; a scene/style/character change must not recast the narrator. Lock timbre, register, accent, texture, delivery, pace and recording treatment, not just "same narrator". Keep emotional progression in visuals/music. Style-specific music rules never override this shared voice contract. Mandate BGM continuity from clip 1.
 - Treat narration as audio-only (`Audio voiceover only, strictly no speech bubbles, no dialogue boxes`). Quote exact dialogue and forbid alteration, repetition, captions, subtitles, or visual transcription.
 - Never place technical color notation (hex, RGB, Pantone) inside generation prompts.
 - Default generated clips to no visible words, letters, numbers, or interface copy. Put optional two-to-five-word overlays in a separate post-production note.
-- Match every clip ending to the next clip opening.
+- Match every clip ending to the next clip opening through action, an important prop, screen direction or a planned cut. Style 4 uses deliberate scene changes or approved time jumps; it does not require the same background in adjacent clips.
 - Do not invent unsupported facts, statistics, quotations, or product claims.
 
 ## Revision rules
@@ -88,7 +95,6 @@ Theme, ratio, duration, or style changes require a fresh visual balance check. A
 ## Final check
 
 Apply the checklist in the loaded reference. Repair any failed condition before responding.
-
 
 ---
 
@@ -108,8 +114,14 @@ This catalog defines the supported visual styles for `directing-stickman-videos`
 | **Style 2A** | Modern Beanie - Studio Tech (极简科技风) | Pure white high-key studio, subtle light-gray perspective grid, glowing cyan/blue glass UI | Tech tutorials, AI tool breakdowns, career insights, methodology breakthroughs | Red beanie (no pom-pom), yellow t-shirt, black stick limbs, smooth 2D animation |
 | **Style 2B** | Modern Beanie - Cinematic Story (彩色故事风) | Full-color narrative environments, cinematic lighting & depth (warm room, dusk, desert, summit) | Emotional storytelling, personal growth, motivational journeys, narrative hooks | Same red beanie & yellow t-shirt figure staged inside rich environmental lighting |
 | **Style 3** | Prehistoric Hand-Drawn / Dark Comedy (史前手绘 / 黑色幽默) | Earthy prehistoric environments, warm fire accents, subtle paper texture | Satirical stories, visual analogies, ironic callbacks | White filled heads, expressive cartoon faces, black stick limbs, variable story-specific cast |
+| **Style 4** | Cozy Storytelling (治愈故事风) | Full-color 2D cartoon locations, gentle atmospheric light, varied cinematic shots | Relatable life stories, emotional growth, educational storytelling | White filled round head and slim torso, dark stick limbs, simple expressive face |
+| **Style 5** | Historical Cartoon (历史卡通风) | Full-color painterly historical settings, clean cel shading, era-specific wardrobe and props | History explainers, historical daily life, civilization stories and historical comedy | White filled round heads, simple black oval eyes, thick outlines and thin black stick limbs |
 
 For Style 3 read `prehistoric-dark-comedy.md`. It overrides this catalog's generic motion and piano rules. Fix the drawing grammar across stories, not one universal face; fix each approved character within a story.
+
+For Style 4 read `cozy-storytelling.md`. Treat locations as story beats, not one universal room. Its English display name is **Cozy Storytelling**; do not rename it Sketchbook Stories, hand-drawn, or prehistoric.
+
+For Style 5 read `historical-cartoon.md`. Freeze the drawing grammar; change the era pack, not the character rendering system. Use its cast cards, historical palette and story-appropriate music together with `voice-continuity.md`.
 
 ---
 
@@ -120,15 +132,22 @@ For Style 3 read `prehistoric-dark-comedy.md`. It overrides this catalog's gener
 - **Dark Theme**: Flat, uniform, pitch-black canvas. Pure white line art with high-contrast accent colors.
 
 ### Character DNA
+
+**Classic Dark — tested faceless base:**
 ```text
-One classic white line stickman on black. Its head is a white circular outline surrounding an entirely black, empty interior. Its torso is a single white line, with two white line arms joined to the upper torso and two white line legs joined to the bottom. All five body lines remain connected during movement. Draw the entire character with the same smooth, uniform stroke thickness. Arms and legs end directly without separate hand or foot shapes. The head interior stays completely black and blank in every frame. Preserve this exact line drawing throughout: no filled head, facial marks, body silhouette, outlined limbs or detached joints.
+Use minimalist two-dimensional white line animation. Show the same consistent stick figure with a hollow circular head, no face, no eyes, no mouth, no hair, no clothing, no filled body, stable proportions, connected line limbs, and uniform medium line weight. Exactly two arms and two legs are visible per figure. Each limb appears only in its current pose: raising or lowering the right arm replaces that arm's previous line, never leaving a resting arm beneath an active arm. The figure stays white; accent colors affect only props and graphic effects.
 ```
 
-Freeze this full anchor once and repeat it verbatim in every Classic Dark prompt. Do not expand it into numeric ratios, "open stroke" terminology, extra hand/foot shapes or body-volume descriptions in action instructions. Separate the character design from pose, movement, props and camera.
+**Classic Light — tested faceless base:**
+```text
+Use minimalist two-dimensional black line animation. Show the same consistent stick figure with a hollow circular head, no face, no eyes, no mouth, no hair, no clothing, no filled body, stable proportions, connected line limbs, and uniform medium line weight. Exactly two arms and two legs are visible per figure. Each limb appears only in its current pose: raising or lowering the right arm replaces that arm's previous line, never leaving a resting arm beneath an active arm. The figure stays black; accent colors affect only props and graphic effects.
+```
 
-Occasional simple line expressions are allowed by default. Before freezing the anchor, replace only "The head interior stays completely black and blank in every frame." with "The head interior remains black; occasional small white line expressions may appear." and remove only "facial marks" from its final exclusions. If the user explicitly requests a faceless character, keep the base anchor unchanged. Expressions never change head fill, head outline, body structure or proportions; no detailed eyes, pupils or realistic facial rendering.
+Choose the theme, then freeze its full anchor and repeat it verbatim in every clip. Do not expand it into numeric ratios, skeleton/rig definitions, pen paths, separate hand/foot shapes or body-volume descriptions. Keep pose, movement, props and camera in the timed sequence, not in competing character definitions. The current-pose rule applies to every limb; if the approved story uses a left-arm lead action, adjust the handedness once before freezing, never clip by clip. Preserve energetic actions and rich effects; draw motion trails on props or detached graphics, not as additional limb poses.
 
-For Classic Light, swap white character strokes to black and black background/head interior to white, including expression stroke color. Freeze the resulting full block. The Dark anchor was accepted by the user after a three-clip Flow anxiety test on 2026-10-12; occasional expressions were explicitly accepted. This is sample-specific human acceptance, not proof of defect-free output. Light-polarity adaptation and unrelated-story regression remain unverified. Door/prop deformation and voice consistency were not resolved by this character change.
+Occasional simple line expressions are allowed by default. Before freezing either base anchor, replace only "no face, no eyes, no mouth," with "occasional simple line expressions, no detailed facial features," and keep the prompt's negative constraints compatible with that choice. If the user explicitly requests a faceless character, keep the base unchanged. Expressions never change head fill, head outline, body structure or proportions; no detailed eyes, pupils or realistic facial rendering.
+
+2026-10-13 Flow retest: Omni 1.1 Flash, 16:9, 720p, independent 10s clips for a paper-airplane/perfectionism story. The final Dark base was used in three clips plus two repeated high-risk clips; the Light base was used in two clips. Browser-sampled action frames did not show extra limbs or sudden head enlargement in these final samples. Hand/foot endpoints and cross-clip line weight can still vary; this is not frame-by-frame certification or a guarantee for future generations. The expression-enabled and left-handed variants were not separately tested. Detailed scope and asset IDs are in `tests/reports/classic-character.md` at repository level. Prop continuity and audio were not accepted by this character-only check.
 
 ### Palette Contract
 - Maximum of three saturated accent colors named with ordinary words (e.g., vivid red, electric blue, warm gold).
@@ -206,9 +225,27 @@ Negative constraints: no photorealistic human skin or faces, no 3D humanoid CGI 
 
 ---
 
-## 4. Universal Audio Continuity Contract
+## 4. Style 4: Cozy Storytelling (治愈故事风)
 
-Voice continuity is a shared foundation for **all styles**, including Style 3. Apply `voice-continuity.md` before style-specific music rules. Different videos can choose different voices, while all clips of one video repeat one complete approved voice profile. Keep voice identity separate from the musical arc.
+Minimalist expressive characters inside colorful cartoon worlds: an office, a metro platform, a street-side cafe, a park or another story-appropriate setting. Use close action inserts, wide establishing views, lateral tracking and motivated location cuts. Warmth belongs to the visual treatment; preserve the source's conflict and meaning rather than making every topic cheerful.
+
+Each new ten-second segment normally establishes a different location. Keep the character, important props, screen direction and full voice profile consistent, while deliberately changing scenery. A new camera angle on the same desk is not a substitute for a new story location. Single-location requests and approved callbacks remain valid exceptions.
+
+Use the full character anchor, prop-state rules and acceptance checklist in `cozy-storytelling.md`; do not inherit Style 1's hollow-head/no-face/no-filled-body bans or Style 3's crude sketch/animal-hide rules.
+
+---
+
+## 5. Style 5: Historical Cartoon (历史卡通风)
+
+Expressive stick-figure characters in historical costume, staged in colorful painted landscapes and architecture. Use wide establishing views, readable character actions, reaction close-ups and motivated cuts. Design the cast for the story: a Roman soldier, an Edo-period student or an Egyptian temple attendant need different wardrobe and props, not different drawing grammar.
+
+Use `historical-cartoon.md` for the full style anchor, era-pack template, cast cards and prompt assembly. Visual concept and Roman era-pack contribution: [@leksautomate](https://github.com/leksautomate).
+
+---
+
+## 6. Universal Audio Continuity Contract
+
+Voice continuity is a shared foundation for **all styles**, including Styles 3 and 4. Apply `voice-continuity.md` before style-specific music rules. Different videos can choose different voices, while all clips of one video repeat one complete approved voice profile. Keep voice identity separate from the musical arc.
 
 ### Narrator Voice Lock
 ```text
@@ -228,7 +265,7 @@ This is the user-accepted male example, not a compulsory voice for every project
 
 ---
 
-## 5. Visual Beat Pacing Template (10-Second Clip)
+## 7. Visual Beat Pacing Template (10-Second Clip)
 
 Every prompt must divide its 10 seconds into three active narrative beats:
 
@@ -239,7 +276,6 @@ Timed Synchronized Visual Beats:
 - [7–10s] (VO: "..."): [Climax & outgoing transition — character delivers payoff and initiates outgoing motion for next clip]
 ```
 
-
 ---
 
 # references/storyboard-template.md
@@ -249,6 +285,10 @@ Timed Synchronized Visual Beats:
 Use this contract for Phase A. Present a readable production proposal and stop for confirmation before writing model prompts. Refer to `references/style-catalog.md` for style specifications.
 
 Style 3 (Prehistoric Hand-Drawn / Dark Comedy) is also supported. Before planning it, read `prehistoric-dark-comedy.md`; its cast-card, earthy palette, setup/escalation/payoff and reaction-pause rules override the generic five-stage, mandatory discussion-ending and device-count checks here. Include distinguishable cast cards and a location/prop continuity plan in Phase A. Treat the story as fictional analogy, not invented historical fact.
+
+Style 4 (Cozy Storytelling / 治愈故事风) uses `cozy-storytelling.md`. In Phase A name a different recognizable main setting for each new ten-second segment by default, plus wide/close/moving shots inside it. Lock character design, important props and narration; scenery changes intentionally. Respect an explicit single-location request or approved callback. Do not call this style hand-drawn or require the same table/room across all segments.
+
+Style 5 (Historical Cartoon / 历史卡通风) uses `historical-cartoon.md`. Include its era pack, complete cast cards, location/prop states, exact VO and shared `voice-continuity.md` profile in Phase A. Keep the drawing grammar while adapting clothing, architecture, palette and music to the era. Its narrative-short ending and physical-action pacing override generic discussion-ending and four-device requirements; reactions may pause deliberately. Separate historical facts from invented comic scenes.
 
 ## Rewrite the source
 
@@ -362,7 +402,7 @@ Changing ratio requires new staging, camera paths, transition geometry, and over
 
 ## Continuity
 
-End each row with a visible interface that the next row inherits: a pose, moving object, filled frame, travel direction, shape, or camera motion. Name both sides of every connection in the proposal.
+End each row with a visible interface that the next row inherits: a pose, moving object, filled frame, travel direction, shape, or camera motion. Name both sides of every connection in the proposal. For Style 4, an approved location cut or time jump may replace literal background matching: state what continues (character, prop, direction or story action) and what changes (place/time). Do not spend all N clips at the same desk unless explicitly requested.
 
 ## Confirmation ending
 
@@ -391,14 +431,13 @@ Do not include final model prompts. A global change invalidates approval and req
 - No unsupported factual detail was added.
 - One complete voice profile is proposed for the whole video, independent of visual style; scene-specific audio notes do not contradict it. Any approved multiple speakers have separate stable profiles and explicit line assignments.
 
-
 ---
 
 # references/voice-continuity.md
 
 # Shared voice continuity — all visual styles
 
-This is the common voice contract for Style 1 Light/Dark, Style 2A, Style 2B and Style 3. Voice identity belongs to the video, not to a visual style or a clip. Different videos may choose different voices; every clip of one video must use the same complete approved voice profile. Do not force every project into the tested male profile.
+This is the common voice contract for Style 1 Light/Dark, Style 2A, Style 2B and Style 3, plus Style 4 Cozy Storytelling. Voice identity belongs to the video, not to a visual style or a clip. Different videos may choose different voices; every clip of one video must use the same complete approved voice profile. Do not force every project into the tested male profile.
 
 ## Choose once in Phase A
 
@@ -435,7 +474,6 @@ When generation is authorized, compare the actual clips by listening: perceived 
 The Style 2A Hope test on 2026-10-12 used three independent 10-second Omni 1.1 Flash generations. Only this voice block was changed; the user reported that the new clips sounded like one person and requested the shared rule. This is sample-specific user listening acceptance, not a universal guarantee. Other voice profiles and styles have not had separate provider-backed audio comparisons. Apply the shared instruction contract to all styles as requested while keeping that evidence boundary explicit.
 
 Voice/audio references, if available, and one continuous external VO track are optional further controls when prompt-first refinement is insufficient or the user requests exact matching. They are not mandatory for the normal workflow and do not replace checking the frozen voice block. Do not claim that a reference was used when none was supplied.
-
 
 ---
 
@@ -486,6 +524,153 @@ Each prompt includes: duration/ratio → full drawing-style anchor → full cast
 - Voice/reference limitations are disclosed, not advertised as guarantees.
 - The full voice profile is identical across clips, separate from the prehistoric score and cast design; alternative voices may be chosen for other stories.
 
+---
+
+# references/cozy-storytelling.md
+
+# Style 4 — Cozy Storytelling / 治愈故事风
+
+## Visual identity
+
+Expressive minimalist characters in full-color 2D cartoon story environments. White filled round heads and slim white torsos contrast with dark stick limbs; the background carries color, atmosphere, gentle light and depth. Use clear cartoon contours and cinematic framing, not crude hand drawing, sketchbook borders, paper overlays or photorealistic/3D human characters. Do not inherit Style 1's hollow-head/no-face/no-filled-body bans or Style 3's animal-hide/cave defaults.
+
+“Cozy” describes visual warmth, not a requirement that every script be cheerful. Preserve the user's meaning and the hook → conflict → insight → callback progression. Anxiety, science, education and serious life topics can use the same style. Settings and colors follow the topic, not a mandatory cafe, smartphone or pastel palette.
+
+## Character design belongs to the story
+
+Start with one protagonist for a simple explainer. Additional cast members must be explicitly planned, described and assigned to clips; do not spawn background commuters or clones. Freeze the complete design for each recurring role and repeat it verbatim wherever it appears. Different stories may choose other approved casts, but scene changes within one story do not recast them.
+
+Default anchor, when the approved cast matches the samples:
+
+```text
+One minimalist 2D cartoon protagonist with a white filled circular head, two small dark oval eyes, simple eyebrow strokes and a short curved mouth. The torso is a slim closed tapered shape with solid white fill inside its dark outline. Both arms and both legs are dark single-line strokes with constant medium weight; hands are small dark rounded shapes and feet are short dark rounded strokes. No hair or clothing accessories. Keep the same head-to-body proportions, white head and torso fill, and outline weight in every shot. Exactly two arms and two legs exist; a moving limb replaces its previous pose rather than leaving another limb behind. Expressions change only the simple facial marks, never the head shape or character design.
+```
+
+Keep action, camera scale and props outside this design block. A close-up enlarges the entire character in the image; compare proportions, not raw pixel head size. Do not force covered limbs to show through tables, bedding or foreground objects. Temporary occlusion is not permission to add a replacement arm. Effects stay on props or detached graphics, not duplicated limb trails.
+
+## New segment, new story setting
+
+For a multi-clip video, default each new ten-second segment to another recognizable main setting. Establish it immediately, then vary wide views, action close-ups, tracking and foreground passes inside the segment. Three clips at the same table with different zoom levels do not satisfy this default.
+
+Possible story route: office interruption → commute pressure → outdoor break. This is an example, not a reusable compulsory plot. Re-block for 9:16 with vertical depth and reveals instead of reusing a horizontal layout. Respect an explicit single-location request or an approved return/callback.
+
+Phase A names each location, its narrative purpose, and what connects the cut: character/prop identity, same travel direction, movement, a motivated foreground wipe, or an intentional time jump. Continuity means the story and characters continue, not that every desk, wall or window must be copied. Keep geometry stable within a continuous shot; new locations may have different scenery and furniture.
+
+## Separate design, position and state
+
+Use four distinct scopes in every standalone prompt:
+
+1. Static design: character appearance; this clip's location and fixed furniture.
+2. Movable prop identity: count, shape, color and relevant faces; no permanent initial placement.
+3. First frame and timed transfers: who holds each prop, where it starts, what moves and which old location becomes empty.
+4. Final state: what remains visible and which changes persist; do not restore initial placements after a departure or cut.
+
+Do not put “the bag rests on the floor” into a global immutable room definition if the character later takes it away. Apply the same ownership rule to cups, pens, tools or other topic-specific props. Record object contact with its support: a lamp base touches the table; a resting cup stays on the surface; a held device touches the hand.
+
+When an object has different visible sides, define them conditionally. For example, a phone front has a plain screen; a screen-down phone shows its unlit back, not a permanently visible colored screen. This is an optional phone adapter, not a required object in every story.
+
+Graphical alerts or metaphors belong only to their approved timed beats. Use simple icon geometry rather than text-bearing cards. Do not place anxiety graphics into a shared global environment block and thereby recreate them in a calm final scene. Keep scenes free of captions, technical labels, color codes and random interface writing; add subtitles in post-production.
+
+## Motion and audio
+
+Use concrete actions, related effects and purposeful shot changes about every two to three seconds, with enough time to complete each handoff. Avoid liquid furniture transformations and too many simultaneous actions. A short sip, hesitation or reaction is useful; do not make the entire clip an idle talking pose. Warm daylight, moving leaves, passing trains and location-specific details can enrich the image without redesigning the character.
+
+Apply the shared `voice-continuity.md` contract for every clip. Freeze the video's chosen full voice profile and repeat it verbatim; another place, mood, character age or scene cannot recast the narrator. Keep emotions in visuals/music, and environmental acoustics in SFX rather than changing dry narration into station/cafe reverb. Use a story-appropriate score with the same motif/tempo/instrumentation across segments. The style is not limited to one male voice.
+
+## Delivery and acceptance
+
+The skill outputs the confirmed proposal and standalone prompt package. Flow operation, paid retries, downloading and publication still require user authorization. Preserve baseline samples and use bounded, issue-specific retests.
+
+Before publishing a result or calling it consistent, check:
+
+- New clip openings show the approved different settings, unless a single-location request/callback was approved.
+- Character count/design, head/torso fill, proportions and current limb poses remain coherent at reaches, lifts, turns and walking steps.
+- Prop ownership and visible faces match the action; no simultaneous hand/background copies or end-state resets.
+- Movement direction and narrative meaning connect the cuts; time jumps are named. Different furniture after an intentional location cut is not itself a failure.
+- Wipes land at actual usable frames, not necessarily the last generated frame; provide a candidate trim point rather than claiming seamless assembly without checking.
+- No white card border, unwanted written labels, unintended people, or pressure graphics leaking into the calm ending.
+- Actual audio is compared by listening. Repeated voice text and screenshots are not audio certification.
+
+The 2026-10-14 Flow samples support the location-change approach and show the intended visual style. They are not a guarantee of frame-perfect anatomy, prop state or voice matching; detailed scoped observations live in repository `tests/reports/style-4.md`, not as marketing claims in the README.
+
+---
+
+# references/historical-cartoon.md
+
+# Style 5 — Historical Cartoon / 历史卡通风
+
+Historical explainers, daily life, civilization stories and comic historical shorts, using expressive stick figures in colorful historical worlds.
+
+Visual concept and Roman era-pack contribution: [Lawal Ridwan / @leksautomate](https://github.com/leksautomate), via [History Stickman](https://github.com/kaomei/stickman-video-director/pull/41). Adapted to this project's Style 5 with owner-directed cross-era trials. The contributor's PR numbering is not the published style number.
+
+## Fixed drawing grammar
+
+Repeat this anchor verbatim in every standalone prompt:
+
+```text
+Polished 2D cel-shaded cartoon animation with thick clean black outlines and soft metallic shading. Stick-figure characters with smooth white filled round heads, simple black oval eyes, expressive brows and mouths, no nose, and thin black stick limbs, in the described costume. Exactly two arms and two legs, each shown only in its current pose. Clean, sunlit, painterly landscapes.
+```
+
+Keep white head fill, head/body proportions, outline weight and black stick limbs fixed within a story. Open eyes are simple solid black ovals without iris/pupil detail; a blink or closed-eye expression does not redesign the eyes. Cloth, leather and metal can have soft shading and small highlights. Backgrounds are full-color painted landscapes or architecture, not empty white canvases, paper textures, ink wash, photorealistic people or glossy 3D characters. Approved night/interior lighting changes illumination, not drawing grammar. Costume may cover limbs without changing their underlying black line design.
+
+## Phase A: era and cast
+
+Use the existing proposal and approval workflow. Include a compact era pack:
+
+- **Era/place:** period, region and the story's factual premise.
+- **Roles/wardrobe:** each visible role's silhouette, clothing and recognizable accessory.
+- **Settings:** story locations, architectural landmarks, screen direction and planned time cuts.
+- **Palette:** four to six ordinary color names and their roles.
+- **Props/symbols:** tools, weapons, furniture and icon-only emblems, with ownership and counts.
+- **Music:** era-appropriate instruments and one coherent score direction.
+- **Facts:** distinguish supported history from illustrative scenes or fictional jokes; do not invent quotations, statistics or historical events.
+
+For a different era, draft and confirm a new pack rather than borrowing Roman armor or symbols. Adapt Egyptian, Chinese, Japanese or other clothing and buildings while preserving the drawing grammar. Do not make one Roman soldier a universal cast for all stories.
+
+For each recurring role, write a complete story-specific cast card: role/age range, head/body proportions, face and eye shape, hair/beard or explicit absence, headwear, clothing layers and silhouette, limb treatment, footwear and distinguishing accessory. Give recurring roles at least two visible non-color differences. Resolve concrete features instead of writing only “a soldier” or “a princess.” Freeze each approved card and repeat its **full description** in every standalone prompt where the role appears; never substitute “same character,” an ellipsis or a name alone. A crowd can use one uniform group description, with named foreground characters separately identified.
+
+Keep appearance separate from action: a spade's shape belongs in its prop description; who holds it, in which hand, and whether it touches the ground belong in opening/action/ending states. Do not make all props permanently held or all characters permanently front-facing merely to prevent drift.
+
+### Roman era pack
+
+- **Place:** Roman Republic/Empire, Mediterranean roads, camps, towns and countryside; specify the period needed by the topic.
+- **Soldier:** bronze-gold helmet with black horsehair crest, grey chainmail, red tunic, brown segmented leather skirt, thin black limbs and a short sword. Include a red shield with a gold icon only when the scene needs it. Officers can use a distinct crest or cape, frozen in their own cast cards.
+- **Civilian:** cream tunic or toga with a story-specific accessory; approve the complete card rather than treating all civilians as soldiers without helmets.
+- **Settings:** green hills, cypress trees, dusty roads, wooden palisades and camp ditches; Forum, harbor or market architecture when relevant.
+- **Palette:** Roman red, bronze gold, steel grey, grass green, sky blue, earthy tan.
+- **Music:** restrained drums, brass and strings for epic scenes; light plucked strings and woodwinds for daily life or comic scenes. No mandatory piano.
+- **Treatment:** costume is simplified illustration, not evidence for an exact historical uniform. Preserve the factual narration while using fictional individual characters to illustrate it.
+
+## Phase B: standalone clips
+
+Each prompt contains:
+
+1. Approved duration/ratio and technical targets.
+2. Full drawing-style anchor, era palette and segment setting.
+3. Full cast cards for every visible recurring role, plus relevant prop designs/counts.
+4. Opening layout, held items, hand/owner and screen direction.
+5. `[0–3s]`, `[3–7s]`, `[7–10s]` physical beats, camera work and ending state.
+6. Exact approved audio-only VO and the complete frozen voice block from `voice-continuity.md`.
+7. Era score, timed SFX and voice-first mix; retain the same score identity across clips.
+8. Compatible negatives.
+
+Use the existing accepted male profile by default when no other voice is requested. Honor female, older, youthful or other voice choices by resolving a complete profile through `voice-continuity.md`, then freezing it across the whole video. Cast gender or a change of era never recasts the off-screen narrator. Keep voice identity separate from music and visual emotion.
+
+Use the five-stage engine for explainers where useful; narrative shorts can use setup → escalation → payoff without forcing a discussion question. Prefer a few readable physical actions over four unrelated effects. A deliberate reaction pause is valid. Wide establishing shots, lateral tracking, medium actions and close reactions should serve the narration. Maintain screen direction and describe a planned time jump explicitly when adjacent states do not directly match.
+
+Keep one current pose per limb. Give prop transfers a clear release, travel and receiving state; do not spawn duplicate tools or transform one item into another. Use the smallest cast the story needs. Describe background groups as uniform ranks, not many competing named roles.
+
+Preserve complete approved style, cast and voice blocks; there is no style-specific character-count cap. Remove conflicting or redundant wording rather than stripping identity details. If an interface rejects the length, report its actual limit before changing approved content.
+
+```text
+NO VISIBLE TEXT, LETTERS, NUMBERS, SUBTITLES, LOGOS OR WATERMARKS (blank paper or abstract brush strokes only), NO SPEECH BUBBLES, NO BLOOD OR GORE, NO PHOTOREALISTIC FACES, NO 3D CGI, NO PAPER TEXTURE, NO EXTRA LIMBS, NO FUSED OR DUPLICATE HEADS, NO COSTUME CHANGES, NO EXTRA CHARACTERS.
+```
+
+Keep negatives compatible with the approved cast: do not ban simple faces, historical clothing or chosen hair/beards. Reference images remain optional when requested and supported; the Roman test used pure text-to-video.
+
+## Review
+
+Before delivery, compare repeated style/cast/voice blocks and all adjacent prop states. When generation is authorized, inspect actual footage for head fill, eye design, costume silhouette, limbs, prop counts and action joins; listen separately for narrator consistency. Record prompt compliance separately from observed output. Localize changes to Style 5; do not rewrite Styles 1–4.
 
 ---
 
@@ -496,6 +681,10 @@ Each prompt includes: duration/ratio → full drawing-style anchor → full cast
 Use this contract only after explicit approval of the current Phase A. Refer to `references/style-catalog.md` for full style specifications and prompt blueprints. Apply `voice-continuity.md` to every style; visual-style overrides never replace its complete video-level voice profile.
 
 Style 3 (Prehistoric Hand-Drawn / Dark Comedy): read `prehistoric-dark-comedy.md` and apply its override rules. Repeat the full approved cast descriptions for all visible roles, white filled heads, expressive cartoon faces, hair/clothing, earthy setting and layout in every prompt. Do not apply generic face/hair/texture bans or idle bans to its deliberate reaction beats. Use story-appropriate music instead of mandatory piano. Explicitly identify intended time jumps; otherwise match adjacent states. Technical output specs are targets, not guarantees of interface capabilities.
+
+Style 4 (Cozy Storytelling / 治愈故事风): read `cozy-storytelling.md`. Repeat full character and voice anchors, but give each segment its approved new setting. Describe each scene opening as a recognizable new location, then connect action/prop/screen direction or a named time cut. Do not repeat one global room layout, inherit Style 1's no-face/filled-body bans, or require hand-drawn/paper aesthetics. Keep movable-object appearance separate from initial positions and timed state changes.
+
+Style 5 (Historical Cartoon / 历史卡通风): read `historical-cartoon.md` for its standalone prompt order and overrides. Repeat the full frozen drawing anchor, visible cast cards, approved era pack and complete `voice-continuity.md` voice block in every clip. Keep solid oval eyes and black stick limbs, with historical costume and colored painterly scenery. Do not inherit Style 1's hollow-head/no-face/no-clothes contract or generic piano, three-color, four-device and no-idle requirements. Follow its era score, physical beats and planned cuts; do not shorten approved anchors to meet an arbitrary character budget.
 
 ## Production package order
 
@@ -508,7 +697,7 @@ Deliver these sections in order:
 
 ## Global continuity block
 
-State the chosen aspect ratio (`16:9` or `9:16`), target duration, selected visual style (Style 1 Classic, Style 2A Studio Tech, or Style 2B Cinematic Story), character anchor design, palette or environment definition, narrator identity, audio arc, and continuity strategy. Treat this block as a review summary; each prompt still repeats all critical locks.
+State the chosen aspect ratio (`16:9` or `9:16`), target duration, selected visual style (Style 1 Classic, Style 2A Studio Tech, Style 2B Cinematic Story, Style 3 Prehistoric, or Style 4 Cozy Storytelling), character anchor design, palette or environment definition, narrator identity, audio arc, and continuity strategy. Treat this block as a review summary; each prompt still repeats all critical locks.
 
 ## Standalone prompt order
 
@@ -520,11 +709,13 @@ Write every prompt in this order:
    - For Style 1 Dark: flat, uniform, pitch-black canvas with pure white line art
    - For Style 2A (Studio Tech): modern bright white studio space with subtle light-gray perspective grid lines on the floor plane, high-key lighting, clean white negative space, sleek glowing cyan/blue glass elements
    - For Style 2B (Cinematic Story): rich full-color cinematic environment with volumetric lighting and depth of field
+   - For Style 4 (Cozy Storytelling): full-color 2D cartoon environment and a segment-specific setting, with varied wide/close/moving shots; new segment means an intentional scene change unless otherwise approved
 3. Character lock:
-   - For Style 1: repeat the full frozen character anchor from `style-catalog.md`, including the chosen polarity and expression setting; no "same character" shortcuts or rephrased anatomy. Keep all body lines connected and the circular head unfilled. Do not let action or camera wording redefine the drawing.
+   - For Style 1: repeat the concise frozen character anchor from `style-catalog.md`, including the chosen polarity and expression setting; no "same character" shortcuts, numeric anatomy recipes, skeleton/rig definitions or pen paths. Keep the circular head hollow, proportions and line weight stable, and only the current pose of each of the two arms and two legs. A raised arm replaces its old lowered line. Keep accents on props/graphics, never recolor the figure. Do not let action or camera wording redefine the drawing; preserve rich motion and effects separately.
    - For Style 2 (Modern Beanie Zeke):
      - First clip: `A minimalist 2D animated stick figure wearing a bright red beanie (smooth knit, no pom-pom) and a yellow t-shirt, with simple black stick limbs and shorts. Simple black lines, vibrant colors, smooth 2D animation style.`
      - Subsequent clips: `The same minimalist 2D animated stick figure in a bright red beanie and yellow shirt... Simple black lines, vibrant colors, smooth 2D animation style.`
+   - For Style 4: repeat its full frozen character anchor from `cozy-storytelling.md`, including white head/torso fill, dark limbs and simple facial marks. Location and expression changes do not redesign the character.
 4. Palette and accent roles (expressed only with ordinary color names, no hex or technical codes)
 5. Composition strategy for the chosen ratio (`16:9` or `9:16`)
 6. First-frame state inherited from the previous clip
@@ -574,7 +765,7 @@ Use ordinary descriptive color names such as vivid red, electric blue, or warm g
 
 ## Audio continuity contract
 
-Use the shared contract in `voice-continuity.md` for Style 1 Light/Dark, Style 2A, Style 2B and Style 3. Choose voices per video, not per clip. Every standalone prompt carries its own full voice and music instructions:
+Use the shared contract in `voice-continuity.md` for Style 1 Light/Dark, Style 2A, Style 2B, Style 3 and Style 4. Choose voices per video, not per clip. Every standalone prompt carries its own full voice and music instructions:
 
 1. **Narrator Lock**: Resolve one complete approved profile, then repeat its frozen English block verbatim across all N prompts. Use the accepted male block or build another coherent profile; do not force all videos into one voice. "Same narrator" and "continue the voice from clip 1" alone are insufficient. Separate voice identity/delivery/recording treatment from the emotional and musical arc; no scene-specific timbre changes or switches into character dialogue unless explicitly approved.
 2. **BGM Lock**:
@@ -589,7 +780,7 @@ Forbid:
 - facial features (pupils, realistic eyes, lips) or hair unless approved
 - extra limbs, malformed anatomy, disconnected lines, or changed proportions
 - broken or changing line weight
-- **For Style 1**: do not reject allowed occasional simple line expressions as character drift; filled heads, body silhouettes, separate hand/foot shapes and detached body lines remain failures. Inspect actual footage before accepting consistency.
+- **For Style 1**: do not reject allowed occasional simple line expressions as character drift; filled heads, sudden head/body proportion changes, duplicated/retained limb poses, body silhouettes, separate hand/foot shapes and detached body lines remain failures. Inspect actual footage at reaches, releases, turns and walking poses, and compare clips. State the scope of inspection: sparse keyframes cannot prove the absence of brief errors.
 - inverted theme polarity or unexplained colors
 - unintended characters or irrelevant spectacle
 - visible words, letters, numbers, technical color notation, palette labels, interface copy, captions, subtitles, logos, or watermarks
@@ -600,7 +791,7 @@ Forbid:
 
 ## Stitching guide
 
-List all N clips in order. For every cut, repeat the exact ending state and matching opening state. Include any trim, short audio crossfade, or match-cut note needed for assembly.
+List all N clips in order. For every cut, repeat the ending state and its continuing action/prop/direction, or state the approved location/time change. Style 4 changes scenery intentionally rather than requiring identical backgrounds. Include any trim, short audio crossfade, or match-cut note needed for assembly; inspect actual generated joins rather than assuming requested wipes landed on the last frame.
 
 ## Audio continuity note
 
@@ -617,7 +808,7 @@ Start with prompt-level consistency, rather than immediately routing voice drift
 - Each prompt repeats ratio (`16:9` or `9:16`), style/theme, character, palette, voice, audio, transition, and negative locks.
 - Style 1 prompts repeat one identical full character block and contain no contradictory appearance instructions. Simple-expression allowance agrees with the negative constraints. Generated consistency is checked separately from prompt compliance.
 - Each prompt has all three timed beats and at least four relevant visual devices.
-- Every ending matches the next opening.
+- Every ending connects to the next opening through a planned action/prop/direction or an approved location/time cut. Style 4 does not repeat one room unless requested.
 - Dialogue exactly matches the approved narration.
 - Dialogue is explicitly audio-only and is never displayed visually.
 - Standalone prompts contain no hexadecimal, RGB, HSL, Pantone, or other technical color notation.

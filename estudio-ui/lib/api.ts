@@ -343,6 +343,17 @@ export const maestros = {
     return pedir<Maestro>(`/maestros/${id}/portada`, { method: "POST", body: fd });
   },
   quitarPortada: (id: string) => pedir<Maestro>(`/maestros/${id}/portada`, { method: "DELETE" }),
+  reemplazarTexto: (id: string, archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<Maestro>(`/maestros/${id}/texto`, { method: "POST", body: fd });
+  },
+  exportar: () => `${BASE}/maestros/exportar`,
+  importar: (archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<{ importados: { id: string; nombre: string; nuevo: boolean }[] }>("/maestros/importar", { method: "POST", body: fd });
+  },
 };
 
 export interface AppTurno { tipo: "texto" | "opcion" | "fin"; opciones: string[]; recomendada: string }

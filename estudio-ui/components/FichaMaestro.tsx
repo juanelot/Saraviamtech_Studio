@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, BookOpen, Check, CheckCircle2, Copy, Film, ImagePlus, Languages, Library, Loader2, Lock, MessagesSquare, Mic, MicOff,
+  ArrowLeft, BookOpen, Check, CheckCircle2, Copy, FileUp, Film, ImagePlus, Languages, Library, Loader2, Lock, MessagesSquare, Mic, MicOff,
   RefreshCw, Sparkles, Trash2, TriangleAlert, X,
 } from "lucide-react";
 import { AvisoError, Segmentado, Tarjeta } from "./ui";
@@ -26,6 +26,7 @@ export default function FichaMaestro({ id }: { id: string }) {
   const [notas, setNotas] = useState("");
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputPortada = useRef<HTMLInputElement>(null);
+  const inputTexto = useRef<HTMLInputElement>(null);
   const [lista, setLista] = useState<ResumenCreacion[]>([]);
   const [listaSeries, setListaSeries] = useState<ResumenSerie[]>([]);
   const [empezar, setEmpezar] = useState(false);
@@ -200,6 +201,24 @@ export default function FichaMaestro({ id }: { id: string }) {
               onClick={() => maestros.analizar(id).then(setM).catch((e) => setError(String(e.message || e)))}>
               <RefreshCw size={14} /> Volver a desglosar
             </button>
+            <button className="boton boton-linea text-sm" disabled={analizando}
+              title="Sube una version nueva (.docx/.txt/.md). Se conservan creaciones, series, notas y portada."
+              onClick={() => inputTexto.current?.click()}>
+              <FileUp size={14} /> Subir version nueva
+            </button>
+            <input ref={inputTexto} type="file" accept=".docx,.txt,.md" hidden
+              onChange={async (e) => {
+                const archivo = e.target.files?.[0];
+                e.target.value = "";
+                if (!archivo) return;
+                try {
+                  setM(await maestros.reemplazarTexto(id, archivo));
+                  setOriginal(null);
+                  setVista("ficha");
+                } catch (err) {
+                  setError(String((err as Error).message || err));
+                }
+              }} />
             <button className="boton boton-fantasma text-sm"
               onClick={async () => {
                 if (!confirm(`¿Borrar "${m.nombre}"?`)) return;

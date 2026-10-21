@@ -625,6 +625,36 @@ async def maestros_crear(archivo: UploadFile | None = File(None), texto: str = F
         raise HTTPException(400, str(e))
 
 
+@router.get("/estudio/maestros/exportar", summary="ZIP con los prompts maestros (para llevarlos a otra maquina)")
+def maestros_exportar(ids: str = Query("")):
+    datos = maestros.exportar([x for x in ids.split(",") if x] or None)
+    return Response(datos, media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="prompts_maestros.zip"'})
+
+
+@router.post("/estudio/maestros/importar", summary="Cargar un ZIP exportado de otra maquina")
+async def maestros_importar(archivo: UploadFile = File(...)):
+    datos = await archivo.read()
+    if len(datos) > 100 * 1024 * 1024:
+        raise HTTPException(413, "el ZIP no puede pasar de 100 MB")
+    try:
+        return {"importados": maestros.importar(datos)}
+    except maestros.ErrorMaestro as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/estudio/maestros/{mid}/texto", summary="Subir una version nueva del prompt maestro y volver a desglosarlo")
+async def maestros_texto(mid: str, archivo: UploadFile | None = File(None), texto: str = Form("")):
+    _maestro(mid)
+    try:
+        if archivo is not None and archivo.filename:
+            contenido, _ = maestros.extraer(archivo.filename, await archivo.read())
+            return maestros.reemplazar_texto(mid, contenido, archivo.filename)
+        return maestros.reemplazar_texto(mid, texto, "texto pegado")
+    except maestros.ErrorMaestro as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/estudio/maestros/{mid}", summary="Ficha de un prompt maestro")
 def maestros_ver(mid: str):
     return _maestro(mid)
