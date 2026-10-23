@@ -12,8 +12,9 @@ import shutil
 from app.services.estudio import almacen, grafo
 
 # Relativo a la carpeta del proyecto.
-CARPETAS = ("render/clips", "render/audio_clips", "render/voz_escenas")
-ARCHIVOS = ("render/combinado.mp4", "render/audio_clips.wav", "render/voz_escenas.wav",
+CARPETAS = ("render/clips", "render/audio_clips", "render/sonido_clips", "render/voz_escenas")
+ARCHIVOS = ("render/combinado.mp4", "render/audio_clips.wav", "render/voz_escenas.wav", "render/voz_y_clips.wav",
+            "render/sonido_clips.wav",
             "render/final.tmp.mp4")
 
 

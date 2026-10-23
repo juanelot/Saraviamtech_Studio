@@ -14,6 +14,7 @@ Encaje:   recortar (llena la pantalla) | desenfoque (entero sobre fondo
 import hashlib
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from loguru import logger
@@ -52,6 +53,10 @@ PARALELO = 3
 # segundo (4 s -> 3.2 %). Todas las piezas de un plano siguen el MISMO movimiento.
 ZOOM_VEL = 0.008
 LENTO_MAX = 1.25  # voz de corrido: cuanto se puede ralentizar un clip antes de congelar su final
+# Sonido de los clips bajo la narracion, por clip: completo | solo_fuerte (solo los picos:
+# golpes, gritos; la musica de fondo del clip queda fuera) | silencio.
+SONIDO_MODOS = ("completo", "solo_fuerte", "silencio")
+SOLO_FUERTE = "agate=threshold=0.12:ratio=20:attack=2:release=180:range=0.003"
 
 
 def _encaje(modo, w, h):
@@ -305,6 +310,9 @@ def ejecutar(ctx):
     srt = ctx.dir(voz["srt"], crear=False) if p["subtitulos"] and (not sin_voz or voz.get("palabras")) else ""
     if sin_voz:
         audio = audio_clips
+    elif any(_modo_sonido(x, p) != "silencio" for x in planos):
+        ctx.avisar("sonido de los clips bajo la voz", 72)
+        audio = _voz_con_clips(planos, audio, p, carpeta)
     if p.get("acabado", "rapido") == "rapido" and not rapido:
         logger.warning("este ffmpeg no trae libass: se usa el acabado clasico (lento)")
     resumen_edicion = None
@@ -484,33 +492,77 @@ def _voz_a_clips(ctx, planos, voz, carpeta):
                     "palabras": "render/palabras_escenas.json", "duracion": round(cursor, 3)}
 
 
-def _audio_de_clips(planos, carpeta):
+def _modo_sonido(x, p):
+    """Como suena un clip bajo la narracion: el elegido para ese clip (por el nombre
+    del archivo sin extension) o el de por defecto. Las imagenes no suenan."""
+    if x.get("tipo") != "video":
+        return "silencio"
+    nombre = os.path.splitext(os.path.basename(x.get("nombre") or ""))[0]
+    modo = (p.get("sonido_clips") or {}).get(nombre) or p.get("sonido_defecto") or "silencio"
+    return modo if modo in SONIDO_MODOS else "silencio"
+
+
+def _voz_con_clips(planos, voz_audio, p, carpeta):
+    """Mezcla la narracion con el sonido de los clips; con `sonido_bajo_voz` el sonido
+    de los clips baja solo mientras habla la voz y vuelve en las pausas."""
+    sonido = _audio_de_clips(planos, carpeta, [_modo_sonido(x, p) for x in planos], "sonido_clips")
+    vol = float(p.get("sonido_volumen", 0.8))
+    # Voz mono a los dos canales tal cual (la conversion por defecto la baja 3 dB).
+    mono = re.search(r"Audio:.*\bmono\b", medios.correr([medios.ffmpeg(), "-hide_banner", "-i", voz_audio]).stderr)
+    voz = "aresample=44100," + ("pan=stereo|c0=c0|c1=c0" if mono else "aformat=channel_layouts=stereo")
+    if p.get("sonido_bajo_voz", True):
+        filtro = (f"[0:a]{voz},asplit=2[voz][guia];[1:a]volume={vol}[cl0];[cl0][guia]sidechaincompress="
+                  f"threshold=0.02:ratio=6:attack=15:release=400[cl];")
+    else:
+        filtro = f"[0:a]{voz}[voz];[1:a]volume={vol}[cl];"
+    filtro += "[voz][cl]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[a]"
+    destino = os.path.join(carpeta, "voz_y_clips.wav")
+    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", voz_audio,
+                       "-i", sonido, "-filter_complex", filtro, "-map", "[a]", "-ar", "44100", "-ac", "2",
+                       "-c:a", "pcm_s16le", destino], timeout=900)
+    if r.returncode != 0:
+        raise RuntimeError(f"no se pudo mezclar la voz con el sonido de los clips: {r.stderr[-300:]}")
+    return destino
+
+
+def _audio_de_clips(planos, carpeta, modos=None, nombre="audio_clips"):
     """Pista con el sonido de cada clip en su tramo (silencio en imagenes o
-    videos mudos). Se usa como "voz" cuando el video no lleva narracion."""
-    trozos_dir = os.path.join(carpeta, "audio_clips")
+    videos mudos). Se usa como "voz" cuando el video no lleva narracion, o bajo
+    ella con `modos` (uno por plano, ver SONIDO_MODOS). Sigue al video: si el clip
+    se ralentiza (voz de corrido) el audio tambien, y si se congela queda en silencio."""
+    trozos_dir = os.path.join(carpeta, nombre)
     os.makedirs(trozos_dir, exist_ok=True)
     ff = medios.ffmpeg()
     trozos = []
-    for x in planos:
+    for x, modo in zip(planos, modos or ["completo"] * len(planos)):
         frames = max(1, round(x["fin"] * FPS) - round(x["inicio"] * FPS))
         dur = frames / FPS
         destino = os.path.join(trozos_dir, f"{x['i']:04d}.wav")
         base = [ff, "-hide_banner", "-loglevel", "error", "-y"]
-        if x["tipo"] == "video" and medios.tiene_audio(x["ruta"]):
+        if modo != "silencio" and x["tipo"] == "video" and medios.tiene_audio(x["ruta"]):
             offset = float(x.get("offset") or 0)
             dur_rec = float(x.get("dur_recurso") or 0)
+            filtro = "apad"
             if dur_rec and offset + dur > dur_rec + 0.05:
-                base += ["-stream_loop", "-1"]
+                if x.get("sin_bucle"):  # mismo calculo que _clip_video
+                    queda = max(0.05, dur_rec - offset)
+                    factor = min(LENTO_MAX, dur / queda) if x.get("lento") else 1.0
+                    if factor > 1.001:
+                        filtro = f"atempo={1 / factor:.4f},apad"
+                else:
+                    base += ["-stream_loop", "-1"]
+            if modo == "solo_fuerte":
+                filtro = f"{SOLO_FUERTE},{filtro}"
             if offset > 0:
                 base += ["-ss", f"{offset:.3f}"]
-            args = base + ["-i", x["ruta"], "-vn", "-af", "apad", "-t", f"{dur:.3f}"]
+            args = base + ["-i", x["ruta"], "-vn", "-af", filtro, "-t", f"{dur:.3f}"]
         else:
             args = base + ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", f"{dur:.3f}"]
         r = medios.correr(args + ["-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", destino], timeout=300)
         if r.returncode != 0:
             raise RuntimeError(f"no se pudo sacar el audio del plano {x['i']}: {r.stderr[-300:]}")
         trozos.append(destino)
-    salida = os.path.join(carpeta, "audio_clips.wav")
+    salida = os.path.join(carpeta, f"{nombre}.wav")
     lista = salida + ".txt"
     with open(lista, "w", encoding="utf-8") as f:
         for t in trozos:

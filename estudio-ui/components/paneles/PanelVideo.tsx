@@ -25,6 +25,16 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
   const cuadrado = ancho > 0 && Math.abs(ancho - alto) <= ancho * 0.05;
   const intenso = r.edicion === "intenso";
   const editorial = r.edicion === "editorial" || intenso;
+  // Clips de video del montaje (una vez cada uno, en orden) para elegir como suenan bajo la voz.
+  const clips: { nombre: string; recurso: string; etiqueta: string }[] = [];
+  for (const x of vista.etapas.asignacion.salida?.planos || []) {
+    const nombre = (x.nombre || "").split("/").pop()!.replace(/\.[^.]+$/, "");
+    if (x.tipo === "video" && nombre && !clips.some((c) => c.nombre === nombre))
+      clips.push({ nombre, recurso: x.recurso!, etiqueta: x.escena ? `Escena ${x.escena}` : `#${x.i + 1}` });
+  }
+  const sonidoClips = (r.sonido_clips as Record<string, string>) || {};
+  const sonidoDefecto = (r.sonido_defecto as string) || "silencio";
+  const MODOS = [{ v: "completo", t: "Completo" }, { v: "solo_fuerte", t: "Solo fuertes" }, { v: "silencio", t: "Silencio" }];
 
   async function subirMusica(f: File | undefined) {
     if (!f) return;
@@ -91,6 +101,52 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
               detalle={r.voz_continua !== false
                 ? "La narracion suena seguida, sin pausas. Cada clip dura lo que su texto: si sobra se corta y si falta se ralentiza un poco y se queda en su ultimo fotograma. Nunca se repite."
                 : "Cada clip sale entero y su trozo de voz va al principio (hay pequenas pausas entre clips)."} />
+          </Tarjeta>
+        )}
+        {clips.length > 0 && p("voz").voz !== "ninguna" && (
+          <Tarjeta titulo="Sonido de los clips">
+            <div className="space-y-4">
+              <Campo etiqueta="Por defecto" ayuda="Completo: el audio entero del clip. Solo fuertes: golpes, gritos y efectos, sin la musica de fondo del clip. Silencio: solo tu narracion.">
+                <Segmentado valor={sonidoDefecto} onChange={s("sonido_defecto")} opciones={MODOS} />
+              </Campo>
+              {sonidoDefecto !== "silencio" || Object.values(sonidoClips).some((m) => m !== "silencio") ? (
+                <>
+                  <Campo etiqueta="Volumen del sonido de los clips">
+                    <Deslizador valor={Number(r.sonido_volumen ?? 0.8)} min={0} max={2} paso={0.05} onChange={s("sonido_volumen")}
+                      formato={(x) => `${Math.round(x * 100)}%`} />
+                  </Campo>
+                  <Interruptor valor={r.sonido_bajo_voz !== false} onChange={s("sonido_bajo_voz")}
+                    titulo="Bajar bajo la voz" detalle="El sonido de los clips baja solo mientras hablas y vuelve en las pausas." />
+                </>
+              ) : null}
+              <details>
+                <summary className="cursor-pointer text-xs text-tinta-2">
+                  Elegir clip por clip ({clips.length} clips, {Object.keys(sonidoClips).length} cambiados)
+                </summary>
+                <ul className="mt-2 max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+                  {clips.map((c) => (
+                    <li key={c.nombre} className="rounded-xl border border-linea p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs text-tinta-2" title={c.nombre}>
+                          <b>{c.nombre}</b> · {c.etiqueta}
+                        </span>
+                        {sonidoClips[c.nombre] && (
+                          <button className="boton boton-fantasma shrink-0 !px-2 !py-1 text-xs" title="Volver al de por defecto"
+                            onClick={() => { const n = { ...sonidoClips }; delete n[c.nombre]; set("render", "sonido_clips", n); }}>
+                            Por defecto
+                          </button>
+                        )}
+                      </div>
+                      <video controls preload="none" className="mt-1 max-h-40 w-full rounded-lg bg-black" src={url.original(id, c.recurso)} />
+                      <div className="mt-1">
+                        <Segmentado valor={sonidoClips[c.nombre] || sonidoDefecto} opciones={MODOS}
+                          onChange={(v) => set("render", "sonido_clips", { ...sonidoClips, [c.nombre]: v })} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
           </Tarjeta>
         )}
         <Tarjeta titulo="Estilo de edicion">

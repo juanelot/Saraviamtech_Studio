@@ -113,6 +113,13 @@ El montaje se hace con ffmpeg: un clip por plano, en caché, y el acabado (voz, 
   - franjas de cine en las citas;
   - un "pop" en los rótulos y una subida de tensión antes de cada revelación.
 
+**Sonido de los clips (con narración):** cuando el video lleva voz, en el paso Video eliges cómo suena cada clip de video bajo la narración:
+- **Completo:** el audio entero del clip.
+- **Solo fuertes:** solo los picos (golpes, gritos, efectos); la música de fondo del clip queda fuera.
+- **Silencio:** solo la narración (es el modo por defecto, así los videos que ya tenías no cambian).
+
+Hay un modo por defecto y otro por clip (con el clip para verlo y oírlo), un volumen propio y la opción de que el sonido de los clips baje solo mientras habla la voz. Si un clip se ralentiza por la voz de corrido, su audio también; si se congela su último fotograma, queda en silencio.
+
 Claude marca las palabras clave, los datos y los momentos fuertes en una sola pasada y siempre escribe esos textos en el idioma de la narración. Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/` (`whoosh`, `golpe`); si no los hay, se generan solos.
 
 ### Miniatura
@@ -474,10 +481,10 @@ Saraviamtech_Studio/
 
 ## Estado actual y pendientes
 
-*Al 19 de octubre de 2026.*
+*Al 23 de octubre de 2026.*
 
 **Funcionando**
-- Estudio completo en local y en el VPS (studio.saraviamtech.com, actualizado el 19-10-2026 con `edge-tts` 7.3.1): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip y los tres estilos de edición.
+- Estudio completo en local y en el VPS (studio.saraviamtech.com, actualizado el 19-10-2026 con `edge-tts` 7.3.1): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip, sonido de los clips bajo la narración y los tres estilos de edición.
 - Generar en Google Flow en local. Se probó de punta a punta: 4 escenas, detener a mitad, continuar (solo generó las que faltaban) y montaje del video.
 - App Virales con Kie, imágenes locales y clips de stock, más `zenn_cli.py`.
 
@@ -506,6 +513,8 @@ Saraviamtech_Studio/
 | 2026-10-13 | Botón Liberar espacio |
 | 2026-10-17 | Voz de corrido en escenas de prompt maestro, escenas por clip y borrar música |
 | 2026-10-19 | **Generar en Google Flow** (solo local), aviso de versión de `edge-tts` y paso a `edge-tts` 7.3.1 |
+| 2026-10-21 | Exportar e importar prompts maestros y Stickman con los estilos 4 y 5 |
+| 2026-10-23 | **Sonido de los clips** bajo la narración: completo, solo fuertes o silencio, por clip |
 
 ---
 
