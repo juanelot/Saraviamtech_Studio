@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Film, Pin, PinOff, Sparkles, X } from "lucide-react";
+import { Film, Pin, PinOff, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Segmentado, Tarjeta } from "../ui";
 import { mini, mmss, url, type Plano, type Recurso } from "@/lib/api";
 import { ESFUERZOS, MODELOS } from "./PanelMaterial";
 
-export default function PanelAsignacion({ vista, p, set, ejecutar, ocupado }: PanelProps) {
+export default function PanelAsignacion({ vista, p, set, ejecutar, ocupado, irA }: PanelProps) {
   const et = vista.etapas.asignacion;
   const a = p("asignacion");
   const recursos = vista.etapas.recursos.salida?.recursos || [];
@@ -94,6 +94,15 @@ export default function PanelAsignacion({ vista, p, set, ejecutar, ocupado }: Pa
       </div>
 
       {et.salida && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-linea bg-tarjeta p-3">
+          <p className="text-sm text-tinta-2">Para cortar, mover y retocar sobre una linea de tiempo, con vista previa:</p>
+          <button className="boton boton-acento !py-1.5 text-sm" onClick={() => irA("editor")}>
+            <SlidersHorizontal size={14} /> Abrir el editor
+          </button>
+        </div>
+      )}
+
+      {et.salida && (
         <ol className="space-y-2">
           {et.salida.planos.map((x) => {
             const rid = fijados[String(x.i)] || x.recurso!;
@@ -146,7 +155,7 @@ export default function PanelAsignacion({ vista, p, set, ejecutar, ocupado }: Pa
   );
 }
 
-function Selector({ plano, recursos, actual, onElegir, onCerrar }: {
+export function Selector({ plano, recursos, actual, onElegir, onCerrar }: {
   plano: Plano; recursos: Recurso[]; actual?: string;
   onElegir: (rid: string) => void; onCerrar: () => void;
 }) {

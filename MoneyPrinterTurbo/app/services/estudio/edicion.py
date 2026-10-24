@@ -718,7 +718,11 @@ def lineas_y_marcas(ctx, voz, p):
     vacio = {"resaltar": [], "rotulos": [], "revelaciones": [], "gancho": ""}
     if not lineas:
         return lineas, vacio
-    return lineas, marcas(ctx.dir("render"), lineas, opts, lambda m: ctx.avisar(m, 3))
+    # Claude marca el texto original (asi la cache vale aunque se corrija una frase);
+    # se muestra el corregido en el editor. Sin voz propia no hay correcciones (otro SRT).
+    cambios = {} if voz.get("sin_voz") else p.get("subs_texto")
+    return (acabado.con_cambios(lineas, cambios),
+            marcas(ctx.dir("render"), lineas, opts, lambda m: ctx.avisar(m, 3)))
 
 
 def subcortes(planos, lineas, marcas_, opts):

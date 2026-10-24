@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Notificacion: una tarjeta de aviso del movil baja con un muelle, se queda y vuelve a subir. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"app","type":"string","label":"App","default":"Banco"},
+  {"id":"titulo","type":"string","label":"Titulo","default":"Pago recibido"},
+  {"id":"mensaje","type":"string","label":"Mensaje","default":"Has recibido 2.500 $ de Cliente"},
+  {"id":"hora","type":"string","label":"Hora","default":"ahora"},
+  {"id":"color","type":"color","label":"Color","default":"#34C759"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"arriba"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: -apple-system, "Segoe UI", "Inter", Arial, sans-serif; }
+    #marco { position: absolute; inset: 0; display: flex; justify-content: center; padding: 0 4%; }
+    #aviso { width: 100%; max-width: 19em; font-size: __TAM__px; padding: 0.7em 0.8em; border-radius: 1em;
+             background: rgba(245, 245, 247, 0.96); color: #111; display: flex; gap: 0.65em; align-items: flex-start;
+             box-shadow: 0 0.4em 1.4em rgba(0, 0, 0, 0.35); }
+    #icono { flex: 0 0 auto; width: 2.1em; height: 2.1em; border-radius: 0.5em; display: flex; align-items: center; justify-content: center;
+             color: #fff; font-weight: 800; font-size: 1.05em; }
+    #cuerpo { flex: 1 1 auto; min-width: 0; }
+    #cabeza { display: flex; justify-content: space-between; gap: 0.5em; font-size: 0.78em; color: #6b6b70; text-transform: uppercase; letter-spacing: 0.04em; }
+    #titulo { font-weight: 700; margin-top: 0.15em; line-height: 1.2; }
+    #mensaje { margin-top: 0.1em; line-height: 1.25; color: #2a2a2e; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0">
+      <div id="aviso">
+        <div id="icono"></div>
+        <div id="cuerpo"><div id="cabeza"><span id="app"></span><span id="hora"></span></div><div id="titulo"></div><div id="mensaje"></div></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const marco = document.getElementById("marco");
+    marco.style.alignItems = v.posicion === "arriba" ? "flex-start" : v.posicion === "abajo" ? "flex-end" : "center";
+    marco.style.paddingTop = v.posicion === "arriba" ? "8%" : "0";
+    marco.style.paddingBottom = v.posicion === "abajo" ? "22%" : "0";
+    for (const k of ["app", "hora", "titulo", "mensaje"]) document.getElementById(k).textContent = v[k];
+    const icono = document.getElementById("icono");
+    icono.style.background = v.color;
+    icono.textContent = (String(v.app).trim()[0] || "•").toUpperCase();
+
+    const aviso = document.getElementById("aviso");
+    // Abajo entra desde abajo; arriba y centro, desde arriba.
+    const desde = v.posicion === "abajo" ? "140%" : "-140%";
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo(aviso, { y: desde, opacity: 0.6 }, { y: 0, opacity: 1, duration: 0.55, ease: "back.out(1.4)" }, 0.05)
+      // Un pequeno "ding": el icono vibra.
+      .to(icono, { keyframes: { rotation: [0, -14, 12, -8, 5, 0] }, duration: 0.45, ease: "none" }, 0.45)
+      .to(aviso, { y: desde, opacity: 0.6, duration: 0.4, ease: "power3.in" }, D - 0.4);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

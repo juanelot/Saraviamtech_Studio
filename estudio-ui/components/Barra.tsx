@@ -18,6 +18,7 @@ export default function Barra() {
         <nav className="ml-auto flex items-center gap-1 text-sm">
           <Link href="/" className="boton boton-fantasma">Mis videos</Link>
           <Link href="/maestros" className="boton boton-fantasma">Prompts maestros</Link>
+          <Link href="/clips" className="boton boton-fantasma">Clip Studio</Link>
         </nav>
       </div>
     </header>

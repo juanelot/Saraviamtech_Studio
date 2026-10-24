@@ -1,0 +1,76 @@
+<!doctype html>
+<!-- Linea de tiempo: una fila "Fecha: hecho" por renglon; la linea se dibuja y cada hito aparece cuando llega. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"datos","type":"string","label":"Hitos","default":"1969: Llegada a la Luna\n1989: Nace la web\n2007: El primer iPhone"},
+  {"id":"color","type":"color","label":"Color","default":"#FFD447"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"centro"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: "Inter", "Montserrat", Arial, sans-serif; }
+    #marco { position: absolute; inset: 0; display: flex; justify-content: center; padding: 0 7%; }
+    #tarjeta { position: relative; min-width: 9em; max-width: 20em; font-size: __TAM__px; padding: 0.7em 0.9em 0.7em 1.9em;
+               border-radius: 0.45em; background: rgba(8, 10, 20, 0.7); color: #fff; }
+    #linea { position: absolute; left: 1em; top: 1.05em; width: 0.12em; border-radius: 1em; transform-origin: top; background: rgba(255, 255, 255, 0.35); }
+    #avance { position: absolute; inset: 0; border-radius: 1em; transform-origin: top; }
+    .hito { position: relative; padding: 0.3em 0; }
+    .hito + .hito { margin-top: 0.55em; }
+    .punto { position: absolute; left: -1.16em; top: 0.48em; width: 0.56em; height: 0.56em; border-radius: 50%; border: 0.12em solid #fff; background: #0b0d16; }
+    .fecha { font-weight: 900; font-size: 1.05em; line-height: 1; font-variant-numeric: tabular-nums; }
+    .hecho { font-weight: 600; font-size: 0.78em; line-height: 1.2; margin-top: 0.18em; opacity: 0.92; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0">
+      <div id="tarjeta"><div id="linea"><div id="avance"></div></div><div id="hitos"></div></div>
+    </div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const marco = document.getElementById("marco");
+    marco.style.alignItems = v.posicion === "arriba" ? "flex-start" : v.posicion === "abajo" ? "flex-end" : "center";
+    marco.style.paddingTop = v.posicion === "arriba" ? "12%" : "0";
+    marco.style.paddingBottom = v.posicion === "abajo" ? "22%" : "0";
+    document.getElementById("avance").style.background = v.color;
+
+    const hitos = String(v.datos).split(/\n|\|/).map((l) => l.trim()).filter(Boolean).slice(0, 6).map((l) => {
+      const k = l.indexOf(":");
+      const el = document.createElement("div");
+      el.className = "hito";
+      el.innerHTML = '<div class="punto"></div><div class="fecha"></div><div class="hecho"></div>';
+      el.querySelector(".fecha").textContent = k < 0 ? l : l.slice(0, k).trim();
+      el.querySelector(".hecho").textContent = k < 0 ? "" : l.slice(k + 1).trim();
+      document.getElementById("hitos").appendChild(el);
+      return el;
+    });
+    // La linea va del primer punto al ultimo.
+    const linea = document.getElementById("linea");
+    const ultimo = hitos[hitos.length - 1];
+    if (ultimo) linea.style.height = `${ultimo.offsetTop + ultimo.querySelector(".punto").offsetTop - hitos[0].offsetTop}px`;
+
+    const tl = gsap.timeline({ paused: true });
+    const tarjeta = document.getElementById("tarjeta");
+    const viaje = Math.max(0.6, D * 0.55);
+    tl.from(tarjeta, { y: "0.8em", opacity: 0, duration: 0.4, ease: "power3.out" }, 0)
+      .fromTo("#avance", { scaleY: 0 }, { scaleY: 1, duration: viaje, ease: "none" }, 0.3);
+    hitos.forEach((h, k) => {
+      // Cada hito entra cuando el avance de color llega a su punto.
+      const t = 0.3 + (hitos.length > 1 ? (k / (hitos.length - 1)) * viaje : 0);
+      const punto = h.querySelector(".punto");
+      tl.fromTo(punto, { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(3)" }, t)
+        .to(punto, { backgroundColor: v.color, borderColor: v.color, duration: 0.15 }, t + 0.05)
+        .from(h.querySelector(".fecha"), { opacity: 0, x: "0.5em", duration: 0.3, ease: "power2.out" }, t)
+        .from(h.querySelector(".hecho"), { opacity: 0, y: "0.3em", duration: 0.35, ease: "power2.out" }, t + 0.1);
+    });
+    tl.to(tarjeta, { opacity: 0, y: "-0.4em", duration: 0.3, ease: "power2.in" }, D - 0.3);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

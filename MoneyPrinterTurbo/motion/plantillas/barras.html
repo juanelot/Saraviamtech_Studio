@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- Comparar en barras: una fila "Etiqueta: valor" por renglon; las barras crecen y cuentan, la mayor en color. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"titulo","type":"string","label":"Titulo","default":"Horas al dia en el movil"},
+  {"id":"datos","type":"string","label":"Datos","default":"España: 3,8\nMéxico: 5,2\nArgentina: 5"},
+  {"id":"sufijo","type":"string","label":"Despues","default":" h"},
+  {"id":"color","type":"color","label":"Color","default":"#FFD447"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"centro"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: "Inter", "Montserrat", Arial, sans-serif; }
+    #marco { position: absolute; inset: 0; display: flex; justify-content: center; padding: 0 7%; }
+    #tarjeta { width: 100%; max-width: 22em; font-size: __TAM__px; padding: 0.7em 0.8em 0.8em; border-radius: 0.45em;
+               background: rgba(8, 10, 20, 0.7); color: #fff; }
+    #titulo { font-weight: 800; font-size: 1.05em; line-height: 1.15; margin-bottom: 0.6em; }
+    .fila { margin-top: 0.45em; }
+    .etq { font-weight: 700; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.85; margin-bottom: 0.2em; }
+    .pista { display: flex; align-items: center; gap: 0.35em; }
+    .barra { height: 0.95em; width: 0; border-radius: 0.2em; background: rgba(255, 255, 255, 0.82); flex: 0 0 auto; }
+    .valor { font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0">
+      <div id="tarjeta"><div id="titulo"></div><div id="filas"></div></div>
+    </div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const aNum = (s) => Number(String(s).replace(/[^\d.,-]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".")) || 0;
+    const marco = document.getElementById("marco");
+    marco.style.alignItems = v.posicion === "arriba" ? "flex-start" : v.posicion === "abajo" ? "flex-end" : "center";
+    marco.style.paddingTop = v.posicion === "arriba" ? "12%" : "0";
+    marco.style.paddingBottom = v.posicion === "abajo" ? "22%" : "0";
+    const titulo = document.getElementById("titulo");
+    titulo.textContent = v.titulo;
+    if (!String(v.titulo).trim()) titulo.style.display = "none";
+
+    // "Etiqueta: valor" (el valor es lo que va tras los ultimos dos puntos).
+    const datos = String(v.datos).split(/\n|\|/).map((l) => l.trim()).filter(Boolean).slice(0, 6).map((l) => {
+      const k = l.lastIndexOf(":");
+      const crudo = k < 0 ? l : l.slice(k + 1).trim();
+      return { etq: k < 0 ? "" : l.slice(0, k).trim(), n: aNum(crudo), dec: /[.,]\d{1,2}$/.test(crudo) ? 1 : 0 };
+    });
+    const tope = Math.max(...datos.map((d) => d.n), 1e-9);
+    const filas = datos.map((d) => {
+      const fila = document.createElement("div");
+      fila.className = "fila";
+      fila.innerHTML = '<div class="etq"></div><div class="pista"><div class="barra"></div><div class="valor"></div></div>';
+      fila.querySelector(".etq").textContent = d.etq;
+      if (d.n === tope) fila.querySelector(".barra").style.background = v.color;
+      document.getElementById("filas").appendChild(fila);
+      const fmt = new Intl.NumberFormat("es-ES", { minimumFractionDigits: d.dec, maximumFractionDigits: d.dec });
+      const valor = fila.querySelector(".valor");
+      const pintar = (x) => { valor.textContent = fmt.format(x) + v.sufijo; };
+      pintar(0);
+      return { fila, barra: fila.querySelector(".barra"), pintar, d };
+    });
+
+    const tl = gsap.timeline({ paused: true });
+    const tarjeta = document.getElementById("tarjeta");
+    tl.from(tarjeta, { y: "0.8em", opacity: 0, duration: 0.4, ease: "power3.out" }, 0)
+      .from(titulo, { opacity: 0, y: "0.3em", duration: 0.35, ease: "power2.out" }, 0.15);
+    const crece = Math.min(1.1, D * 0.25);
+    const paso = Math.min(0.28, (D * 0.3) / Math.max(1, filas.length));
+    filas.forEach((f, k) => {
+      const t0 = 0.35 + k * paso;
+      const n = { x: 0 };
+      // La barra mas larga ocupa el 82 % (el resto queda para el numero).
+      tl.from(f.fila, { opacity: 0, x: "-0.6em", duration: 0.3, ease: "power2.out" }, t0)
+        .to(f.barra, { width: `${(f.d.n / tope) * 82}%`, duration: crece, ease: "power3.out" }, t0 + 0.1)
+        .to(n, { x: f.d.n, duration: crece, ease: "power3.out", onUpdate: () => f.pintar(n.x) }, t0 + 0.1);
+    });
+    const ganador = filas.find((f) => f.d.n === tope);
+    if (ganador) tl.to(ganador.barra, { scaleY: 1.18, duration: 0.18, yoyo: true, repeat: 1, ease: "power1.inOut" }, 0.45 + filas.length * paso + crece);
+    tl.to(tarjeta, { opacity: 0, y: "-0.4em", duration: 0.3, ease: "power2.in" }, D - 0.3);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

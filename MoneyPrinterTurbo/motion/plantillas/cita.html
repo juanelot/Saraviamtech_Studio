@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- Cita: comillas grandes, las palabras suben una a una y las *marcadas* se subrayan con rotulador. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"texto","type":"string","label":"Cita","default":"El dinero es un *buen sirviente* pero un mal amo"},
+  {"id":"autor","type":"string","label":"Autor","default":"Francis Bacon"},
+  {"id":"color","type":"color","label":"Color","default":"#FFD447"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"centro"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: Georgia, "Times New Roman", serif; }
+    #marco { position: absolute; inset: 0; display: flex; justify-content: center; padding: 0 7%; }
+    #tarjeta { position: relative; width: 100%; max-width: 16em; font-size: __TAM__px; padding: 0.9em 0.9em 0.75em;
+               border-radius: 0.4em; background: rgba(8, 10, 20, 0.72); color: #fff; }
+    #comillas { position: absolute; left: 0.3em; top: -0.42em; font-size: 3.2em; line-height: 1; font-weight: 900; }
+    #texto { font-style: italic; font-weight: 700; line-height: 1.22; }
+    .p { display: inline-block; position: relative; margin-right: 0.24em; isolation: isolate; }
+    .p .marca { position: absolute; left: -0.06em; right: -0.06em; bottom: 0.04em; height: 0.36em; border-radius: 0.08em;
+                transform: scaleX(0); transform-origin: left; z-index: -1; opacity: 0.85; }
+    .p .t { position: relative; }
+    #autor { font-family: "Inter", "Montserrat", Arial, sans-serif; font-weight: 700; font-size: 0.5em; text-transform: uppercase;
+             letter-spacing: 0.12em; margin-top: 0.9em; opacity: 0.9; display: flex; align-items: center; gap: 0.6em; }
+    #autor i { display: block; height: 0.14em; width: 2.2em; border-radius: 1em; transform-origin: left; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0">
+      <div id="tarjeta"><div id="comillas">&ldquo;</div><div id="texto"></div><div id="autor"><i></i><span></span></div></div>
+    </div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const marco = document.getElementById("marco");
+    marco.style.alignItems = v.posicion === "arriba" ? "flex-start" : v.posicion === "abajo" ? "flex-end" : "center";
+    marco.style.paddingTop = v.posicion === "arriba" ? "14%" : "0";
+    marco.style.paddingBottom = v.posicion === "abajo" ? "22%" : "0";
+    document.getElementById("comillas").style.color = v.color;
+    document.querySelector("#autor i").style.background = v.color;
+    document.querySelector("#autor span").textContent = v.autor;
+    if (!String(v.autor).trim()) document.getElementById("autor").style.display = "none";
+
+    // *varias palabras* seguidas cuentan como marcadas.
+    let dentro = false;
+    const palabras = String(v.texto).split(/\s+/).filter(Boolean).map((w) => {
+      const abre = w.startsWith("*"), cierra = /\*[.,;:!?]*$/.test(w);
+      const marcada = dentro || abre;
+      if (abre) dentro = true;
+      if (cierra) dentro = false;
+      const s = document.createElement("span");
+      s.className = "p";
+      s.innerHTML = '<span class="marca"></span><span class="t"></span>';
+      s.querySelector(".t").textContent = w.replace(/\*/g, "");
+      s.querySelector(".marca").style.background = v.color;
+      document.getElementById("texto").appendChild(s);
+      return { s, marcada };
+    });
+
+    const tl = gsap.timeline({ paused: true });
+    const tarjeta = document.getElementById("tarjeta");
+    tl.from(tarjeta, { scale: 0.9, opacity: 0, duration: 0.4, ease: "power3.out" }, 0)
+      .from("#comillas", { scale: 0, rotation: -25, duration: 0.45, ease: "back.out(2.4)", transformOrigin: "50% 60%" }, 0.1);
+    const paso = Math.min(0.16, (D * 0.4) / Math.max(1, palabras.length));
+    palabras.forEach((p, k) => tl.from(p.s, { opacity: 0, y: "0.45em", duration: 0.3, ease: "power2.out" }, 0.3 + k * paso));
+    // El rotulador pasa por las marcadas cuando ya se leyo la frase.
+    const fin = 0.3 + palabras.length * paso;
+    palabras.filter((p) => p.marcada).forEach((p, k) => {
+      tl.to(p.s.querySelector(".marca"), { scaleX: 1, duration: 0.22, ease: "power2.inOut" }, fin + 0.1 + k * 0.12);
+    });
+    tl.from("#autor i", { scaleX: 0, duration: 0.35, ease: "power3.out" }, fin + 0.15)
+      .from("#autor span", { opacity: 0, x: "-0.5em", duration: 0.35, ease: "power2.out" }, fin + 0.25)
+      .to(tarjeta, { opacity: 0, scale: 0.96, duration: 0.3, ease: "power2.in" }, D - 0.3);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

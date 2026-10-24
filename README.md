@@ -42,6 +42,7 @@ Cada video es un **proyecto** que avanza por pasos. Puedes ir en orden o volver 
 | **Escenas** | Eliges el formato (16:9, 9:16 o 1:1) y el estilo; Claude corta el guion en escenas y escribe el prompt de imagen (y de video) de cada una. | Claude CLI |
 | **Contenido** | En local, pulsas **Generar en Flow** y las imágenes se crean solas. Si no, subes lo que generaste en Flow, la carpeta de la extensión, un ZIP o tus propios recursos. | Flow automático / tú |
 | **Ajuste** | Revisas qué imagen o clip va en cada plano y fijas a mano lo que quieras. | Claude CLI / tú |
+| **Editor** (opcional) | Editor multipista con vista previa: cortes y clips de la pista principal, capas de fotos y videos encima, textos, audios, música e intro antes de la voz. | Tú |
 | **Video** | Eliges el estilo de edición (Clásico, Editorial o Intenso) y la música, y montas el video. | ffmpeg |
 | **Miniatura** | Claude propone conceptos y prompts para la miniatura; subes la final. | Claude CLI |
 
@@ -66,6 +67,7 @@ material → guion → voz → escenas + prompts ─┐   ← contenido generado
 - **Mi audio:** subes una narración ya grabada (tu voz, o la que hiciste con Clonar-voz) en WAV, MP3, M4A, OGG o FLAC, y se sincroniza sola.
   - Whisper saca el tiempo de cada palabra; si el guion coincide con lo que se oye, los subtítulos usan el texto del guion.
   - Tarda unos 8 s por minuto de audio en CPU (14,5 min en menos de 2 min).
+  - **Quitar silencios largos:** acorta las pausas que pasen de 1 s, 0,6 s o 0,35 s antes de sincronizar, y el video queda más ágil.
 - **Sin voz:** para estilos sin narración (ASMR, por ejemplo). Cada escena dura lo que su tramo o su clip, suena el audio de los propios clips y se recortan sus silencios.
 - La narración se corta en **planos** según sus pausas; cada plano lleva una imagen o clip.
 - **Aviso de versión:** antes de sintetizar con Microsoft se hace una prueba de ~1 s. Si Microsoft rechaza la versión instalada de `edge-tts` (error 403, pasa cuando cambian su servicio), el paso falla al momento y explica cómo actualizar, en lugar de esperar 3 × 120 s.
@@ -94,6 +96,30 @@ material → guion → voz → escenas + prompts ─┐   ← contenido generado
 - El botón **último fotograma** saca el último cuadro de un clip para encadenar segmentos en Flow.
 - **Liberar espacio:** borra solo lo que el Estudio puede rehacer (caché de clips e intermedios del montaje), de un proyecto o de todos. Nunca toca lo subido, el guion, la voz ni el video final.
 
+### Editor
+Paso propio entre **Ajuste** y **Video**, a pantalla ancha y **multipista**, al estilo de un editor de video. Es opcional: **Todo hasta el video** no se detiene aquí, pero lo que se edite es exactamente lo que se monta.
+
+- **Vista previa sin montar:** voz, clips en el segundo justo, zoom de las imágenes, subtítulos por palabra, capas, textos, audios y música elegida. Es una aproximación: los efectos de los estilos Editorial e Intenso solo se ven en el video montado.
+- **Medios** (izquierda): fotos, videos y audios (los del proyecto, que se suben ahí mismo, y las canciones de la biblioteca), con buscador y cuántas veces se usa cada archivo.
+- **Pistas** (abajo), todas sobre el mismo eje de tiempo:
+  - **Capas** de video: fotos o videos encima de la pista principal, a pantalla completa o en ventana (tamaño y posición), con su volumen. Siempre hay una pista vacía arriba para soltar más.
+  - **Textos** propios (títulos, rótulos): texto, tamaño, color, posición y caja oscura. Se añaden con **Texto** o la tecla `T`.
+  - **Principal**: los planos de Ajuste. Se mueve entera desde su **asa** (⋮, a la izquierda). Arrastrar la raya entre dos planos mueve el corte (con **imán** al hueco entre palabras); arrastrar un clip **entre dos planos** lo lleva allí (los de en medio se corren un lugar) y soltarlo **en el centro** de otro los intercambia; los cortes no se mueven, siguen a la voz. Soltar un archivo encima cambia ese clip.
+  - **Voz**: va **por su lado**. Con la voz elegida, `S` la parte en el cabezal y cada trozo se mueve (una pausa, una intro), se recorta por sus bordes o se borra (`Supr`).
+  - **Subtítulos**: también van por su lado y por trozos, igual que la voz (`S`, mover, recortar, borrar; «Igual que la voz» los vuelve a alinear con ella).
+    Un **clic en una frase** permite corregir su texto (o quitarla con `Supr`): los tiempos siguen a la voz y, si cambia el número de palabras, se reparten dentro de la frase. Las marcas de Claude no se vuelven a pedir.
+  - El botón **Juntas** mueve la principal, la voz y los subtítulos a la vez (como antes); «Alinear las tres» las vuelve a poner juntas y enteras. Lo que quede **después** del final alarga el video.
+  - **Audios**: efectos o sonidos, con su volumen y su punto de entrada.
+  - **Música**: un bloque que se mueve y se recorta; también se elige la canción, el volumen y por qué segundo entra.
+- **Gráficos animados** (botón **Gráfico**): título de impacto (las palabras entran una a una; las marcadas con `*asteriscos*` van en color), cifra que cuenta, rótulo inferior y «Suscríbete»; y además frase cinética (una palabra o grupo cada vez), comparar en barras, anillo de porcentaje, línea de tiempo, lista con checks, A contra B, cita con rotulador, sello («FALSO», «MITO»…) y notificación del móvil. Estas nueve salen de ideas de los videos de [awesome-opus5-5-videos](https://github.com/yihui-dev/awesome-opus5-5-videos), que solo trae prompts, y están escritas desde cero. En barras, línea de tiempo y lista va una fila por renglón («Etiqueta: valor»). Con **Ideas de Claude** (dentro de Gráfico), Claude lee lo que dice la voz y propone gráficos para todo el video (plantilla, textos y momento, solo con datos que se dicen; puedes decirle qué buscar); marcas los que te gusten y se crean y se ponen de una vez en la línea de tiempo (un deshacer los quita). Las ideas quedan guardadas en `graficos/ideas.json` del proyecto. Eliges la plantilla, los textos, el color, la posición y la duración, y se pone en el cabezal como una capa más: se mueve, se recorta y se ve en la vista previa. Las plantillas son propias (HTML + GSAP en `MoneyPrinterTurbo/motion/plantillas/`) y las renderiza [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0) en un WebM transparente, unos 30 s cada uno; el mismo gráfico con los mismos textos no se vuelve a renderizar. Necesita Node 22 y, una vez, `npm install` en `MoneyPrinterTurbo/motion` (descarga su propio Chrome). La telemetría de HyperFrames va apagada.
+- **Cambiar lo que dice un plano** (panel del plano): escribes otro texto o pides **ideas a Claude** (tres textos que caben en ese hueco, con un pedido opcional como «más gancho»), y **Grabar y poner** regraba solo esa parte con la voz del proyecto (sintética o clonada). El retoque se encaja en el mismo hueco: si es un poco largo se acelera hasta un 30 % y, si es más corto, el resto queda en silencio. Así no se mueve nada más (clips, cortes, subtítulos, capas) ni se vuelve a llamar a Claude para asignar. Los subtítulos de ese hueco toman el texto nuevo y la pista de voz lo marca como «regrabado»; «Volver a la voz original» lo deshace. No se puede con una narración propia.
+- **En la pantalla** (vista previa) se arrastran las fotos y videos encima, los textos y los subtítulos para colocarlos donde quieras; la esquina del objeto elegido cambia su tamaño y al pasar por el centro aparecen guías que lo pegan. Una capa a pantalla completa que se mueve pasa a ventana.
+- Todo bloque se **mueve** (también a otra pista del mismo tipo) y se **recorta** por sus bordes; el imán pega a bordes, cabezal, cortes y huecos entre palabras (`Alt` lo suelta).
+- El **cabezal** (línea roja) se agarra y se arrastra; también se puede arrastrar sobre la regla o cualquier hueco de la línea de tiempo, y la vista previa lo sigue.
+- **Dividir** (`S`), **borrar** (`Supr`), **duplicar** (`Ctrl+D`), **deshacer** (`Ctrl+Z`), **rehacer** (`Ctrl+Y`), zoom (`+`/`−`, `Ctrl` + rueda o el deslizador) y fotograma a fotograma (`Shift` + flechas).
+- Los cambios de la pista principal se aplican solos en un segundo, sin volver a llamar a Claude; las capas, textos, audios y música se guardan al momento. Si se rehace la voz, los cortes viejos se descartan.
+- Las capas, textos y audios necesitan el acabado **Rápido** (ffmpeg con libass), que es el de por defecto.
+
 ### Video: montaje y estilos de edición
 El montaje se hace con ffmpeg: un clip por plano, en caché, y el acabado (voz, música y subtítulos) en una sola pasada. Hay tres estilos:
 
@@ -121,6 +147,26 @@ El montaje se hace con ffmpeg: un clip por plano, en caché, y el acabado (voz, 
 Hay un modo por defecto y otro por clip (con el clip para verlo y oírlo), un volumen propio y la opción de que el sonido de los clips baje solo mientras habla la voz. Si un clip se ralentiza por la voz de corrido, su audio también; si se congela su último fotograma, queda en silencio.
 
 Claude marca las palabras clave, los datos y los momentos fuertes en una sola pasada y siempre escribe esos textos en el idioma de la narración. Puedes poner tus propios efectos de sonido en `MoneyPrinterTurbo/resource/sfx/` (`whoosh`, `golpe`); si no los hay, se generan solos.
+
+### Publicar y herramientas
+Con el video montado, el paso **Video** trae una tarjeta **Publicar** (Claude CLI, una llamada por herramienta; lo generado se guarda en el proyecto):
+
+- **Título y descripción:** 3 títulos, la descripción lista para pegar y hashtags para YouTube, TikTok o Instagram Reels (en YouTube también las etiquetas), cada uno con su botón **Copiar**.
+- **Capítulos de YouTube:** `0:00 …` con los tiempos del video montado. Sigue las reglas de YouTube: al menos 3 capítulos de 10 s o más y el primero en 0:00.
+- **Subtítulos:** descarga el SRT del video (con los tiempos finales y las frases corregidas) y tradúcelo al inglés, portugués, francés, italiano, alemán o español para subirlo como subtítulos.
+- **Gancho:** nota del 1 al 10 de los primeros segundos, qué funciona y qué falla, y 3 ganchos alternativos que caben en el primer plano. **Regrabar el inicio con este** usa el retoque del editor: el primer plano pasa a decir el gancho nuevo y sale marcado como «regrabado».
+
+En el paso Video, **Sonido → Mejorar la voz** (Suave o Fuerte) quita los graves de fondo, suaviza las «s», comprime y empareja el volumen a −16 LUFS; «Fuerte» además limpia el ruido de una grabación casera. Es local (ffmpeg) y solo se oye en el video montado.
+
+### Clip Studio (video largo → shorts)
+Página propia en la barra de arriba. Subes un video largo (podcast, entrevista, directo) en MP4, MOV, MKV o WEBM y:
+
+1. **Whisper lo transcribe** en la máquina, con el tiempo de cada palabra, y lo parte en frases (entre 15 y 40 s por minuto de video en un PC normal).
+2. **Claude propone los mejores momentos** (cuántos, de 15–35, 30–60 o 55–90 s, y opcionalmente qué buscar): título y gancho en el idioma del video, nota del 1 al 10 y por qué funciona. Siempre de frase completa a frase completa; en videos largos lee por tramos y se queda con los mejores sin que se pisen.
+3. **Ajustas cada clip:** **Ver** reproduce solo ese tramo; el inicio y el final se mueven de frase en frase o en pasos de 0,5 s; también hay **Clip desde aquí** para uno a mano. La transcripción se puede abrir y saltar a cualquier frase.
+4. **Haces el short** en 1080×1920: recortado a vertical por la parte que elijas (un recuadro sobre el video lo muestra) o entero sobre un fondo desenfocado, con subtítulos palabra por palabra en el color que elijas, el gancho arriba los primeros 3 s y el volumen emparejado. Los shorts quedan en la página para verlos y descargarlos.
+
+Se guarda todo en `storage/estudio/clips/<id>/`.
 
 ### Miniatura
 - Claude propone de 1 a 5 conceptos, cada uno con su texto y el prompt para Flow, con y sin texto (para Canva).
@@ -484,7 +530,7 @@ Saraviamtech_Studio/
 *Al 23 de octubre de 2026.*
 
 **Funcionando**
-- Estudio completo en local y en el VPS (studio.saraviamtech.com, actualizado el 19-10-2026 con `edge-tts` 7.3.1): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip, sonido de los clips bajo la narración y los tres estilos de edición.
+- Estudio completo en local y en el VPS (studio.saraviamtech.com, actualizado el 19-10-2026 con `edge-tts` 7.3.1): todos los pasos, prompts maestros, series, Mi audio, Sin voz, escenas por clip, sonido de los clips bajo la narración, editor con línea de tiempo y los tres estilos de edición.
 - Generar en Google Flow en local. Se probó de punta a punta: 4 escenas, detener a mitad, continuar (solo generó las que faltaban) y montaje del video.
 - App Virales con Kie, imágenes locales y clips de stock, más `zenn_cli.py`.
 
@@ -515,6 +561,7 @@ Saraviamtech_Studio/
 | 2026-10-19 | **Generar en Google Flow** (solo local), aviso de versión de `edge-tts` y paso a `edge-tts` 7.3.1 |
 | 2026-10-21 | Exportar e importar prompts maestros y Stickman con los estilos 4 y 5 |
 | 2026-10-23 | **Sonido de los clips** bajo la narración: completo, solo fuertes o silencio, por clip |
+| 2026-10-23 | **Editor multipista** como paso propio: vista previa sin montar, Medios, capas de fotos y videos, textos, audios, música movible, intro antes de la voz, dividir, borrar, deshacer y rehacer |
 
 ---
 

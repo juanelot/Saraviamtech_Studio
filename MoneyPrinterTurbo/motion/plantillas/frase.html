@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- Frase cinetica: una palabra (o un /grupo/) cada vez, enorme, con golpes de tamano y peso; las *marcadas* en color. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"texto","type":"string","label":"Frase","default":"Nadie / te lo va / a *contar*"},
+  {"id":"color","type":"color","label":"Color","default":"#FFD447"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"centro"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: "Inter", "Montserrat", "Arial Black", Arial, sans-serif; }
+    #marco { position: absolute; inset: 0; font-size: __TAM__px; }
+    .g { position: absolute; left: 6%; right: 6%; text-align: center; color: #fff; text-transform: uppercase; line-height: 0.98;
+         font-weight: 900; letter-spacing: -0.01em; opacity: 0;
+         text-shadow: 0 0.04em 0 rgba(0, 0, 0, 0.55), 0 0 0.3em rgba(0, 0, 0, 0.55); }
+    .g.fina { font-weight: 300; letter-spacing: 0.04em; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0"></div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const marco = document.getElementById("marco");
+    const T = __TAM__;
+    // Con "/" se agrupan palabras; si no, va una por golpe.
+    const crudo = String(v.texto);
+    const grupos = (crudo.includes("/") ? crudo.split("/") : crudo.split(/\s+/)).map((g) => g.trim()).filter(Boolean).slice(0, 14);
+    const nodos = grupos.map((g, k) => {
+      const d = document.createElement("div");
+      const marcada = g.includes("*");
+      d.className = "g" + (!marcada && k % 3 === 1 ? " fina" : "");
+      d.textContent = g.replace(/\*/g, "");
+      if (marcada) d.style.color = v.color;
+      marco.appendChild(d);
+      // Que no pase de dos lineas: si es muy larga, se encoge.
+      const libre = marco.clientWidth * 0.88;
+      d.style.whiteSpace = "nowrap";
+      if (d.scrollWidth > libre * 1.9) d.style.fontSize = `${T * (libre * 1.9) / d.scrollWidth}px`;
+      d.style.whiteSpace = "normal";
+      const alto = d.offsetHeight;
+      const H = marco.clientHeight;
+      d.style.top = `${v.posicion === "arriba" ? H * 0.13 : v.posicion === "abajo" ? H * 0.76 - alto : (H - alto) / 2}px`;
+      return d;
+    });
+
+    const tl = gsap.timeline({ paused: true });
+    const paso = Math.max(0.3, (D - 0.35) / Math.max(1, nodos.length));
+    nodos.forEach((d, k) => {
+      const t = 0.05 + k * paso;
+      // Golpes alternos: entra grande, entra desde abajo, o entra estirada.
+      const entrada = [{ scale: 1.8 }, { y: "0.6em" }, { scaleX: 0.4, scaleY: 1.3 }][k % 3];
+      tl.fromTo(d, { ...entrada, opacity: 0 }, { scale: 1, scaleX: 1, scaleY: 1, y: 0, opacity: 1, duration: Math.min(0.24, paso * 0.5), ease: "power4.out" }, t);
+      if (k < nodos.length - 1) tl.to(d, { opacity: 0, scale: 0.85, duration: Math.min(0.12, paso * 0.3), ease: "power2.in" }, t + paso - Math.min(0.12, paso * 0.3));
+    });
+    const ultima = nodos[nodos.length - 1];
+    if (ultima) tl.to(ultima, { scale: 1.06, duration: 0.4, ease: "sine.inOut" }, 0.05 + (nodos.length - 1) * paso + 0.3)
+      .to(ultima, { opacity: 0, y: "-0.3em", duration: 0.25, ease: "power2.in" }, D - 0.25);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

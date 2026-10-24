@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Download, Upload, Clapperboard, Trash2 } from "lucide-react";
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Deslizador, Segmentado, Tarjeta } from "../ui";
+import Publicar from "./Publicar";
 import { listarMusica, mmss, url } from "@/lib/api";
 
 const FUENTES = [
@@ -91,6 +92,7 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
             {et.salida ? "Volver a montar" : "Montar video"}
           </button>
         </Tarjeta>
+        {et.salida && <Publicar id={id} p={p} set={set} />}
       </div>
 
       <div className="space-y-5">
@@ -352,6 +354,16 @@ export default function PanelVideo({ id, vista, p, set, ejecutar, ocupado }: Pan
               <Deslizador valor={Number(r.volumen_voz ?? 1)} min={0.3} max={2} paso={0.05} onChange={s("volumen_voz")}
                 formato={(x) => `${Math.round(x * 100)}%`} />
             </Campo>
+            {!vista.etapas.voz.salida?.sin_voz && (
+              <Campo etiqueta="Mejorar la voz">
+                <Segmentado valor={(r.voz_mejorar as string) || "no"} onChange={(v) => set("render", "voz_mejorar", v === "no" ? null : v)}
+                  opciones={[{ v: "no", t: "Tal cual" }, { v: "suave", t: "Suave" }, { v: "fuerte", t: "Fuerte (quita ruido)" }]} />
+                <p className="mt-1.5 text-xs text-tinta-3">
+                  Quita los graves de fondo, suaviza las «s» y empareja el volumen (como en YouTube). «Fuerte» ademas limpia el ruido
+                  de una grabacion casera. Solo se oye en el video montado.
+                </p>
+              </Campo>
+            )}
           </div>
         </Tarjeta>
 

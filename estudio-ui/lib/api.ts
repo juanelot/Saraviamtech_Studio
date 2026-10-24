@@ -15,6 +15,83 @@ export interface Plano {
   motivo?: string;
   fijado?: boolean;
   escena?: number;
+  dur_recurso?: number;
+  ajuste?: AjusteClip;
+  inicio_elegido?: boolean;
+}
+
+// Que hacer si el clip es mas corto que su plano (lo elige el editor).
+export type AjusteClip = "repetir" | "congelar" | "lento";
+
+export interface AudioProyecto { archivo: string; nombre: string; duracion: number }
+
+// Lo que necesita el editor de la linea de tiempo: la voz por palabras y su forma de onda.
+export interface DatosEditor {
+  audio: string | null; duracion: number; sin_voz: boolean;
+  palabras: [number, number, string][]; picos: number[]; picos_por_s: number;
+  /** Las frases de los subtitulos (lineas del SRT de la voz). */
+  lineas?: [number, number, string][];
+}
+
+// Clip Studio: de un video largo a shorts.
+export type EstadoClips = "transcribiendo" | "listo" | "proponiendo" | "exportando" | "error";
+export interface MomentoClip { id: string; inicio: number; fin: number; titulo: string; gancho: string; nota: number | null; motivo: string }
+export interface ShortHecho { archivo: string; titulo: string; inicio: number; fin: number; creado: number; tam_mb: number }
+export interface SesionClips {
+  id: string; titulo: string; duracion: number; ancho: number; alto: number; creado: number;
+  estado: EstadoClips; progreso: number; mensaje: string; error: string | null;
+}
+export interface DetalleClips extends SesionClips {
+  frases: [number, number, string][]; propuestas: MomentoClip[]; exportados: ShortHecho[];
+}
+export interface OpcionesShort {
+  inicio: number; fin: number; encuadre: "recortar" | "ajustar"; encuadre_x: number; subtitulos: boolean;
+  gancho: string; titulo: string; color: string;
+}
+export const clipStudio = {
+  listar: () => pedir<{ sesiones: SesionClips[] }>(`/clips`),
+  subir: (archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<SesionClips>(`/clips`, { method: "POST", body: fd });
+  },
+  ver: (cid: string) => pedir<DetalleClips>(`/clips/${cid}`),
+  borrar: (cid: string) => pedir<{ ok: boolean }>(`/clips/${cid}`, { method: "DELETE" }),
+  proponer: (cid: string, body: { cuantos: number; duracion: string; pedido: string }) =>
+    pedir<DetalleClips>(`/clips/${cid}/proponer`, { method: "POST", ...json(body) }),
+  guardar: (cid: string, propuestas: MomentoClip[]) =>
+    pedir<{ propuestas: MomentoClip[] }>(`/clips/${cid}/propuestas`, { method: "PUT", ...json({ propuestas }) }),
+  exportar: (cid: string, o: OpcionesShort) => pedir<{ archivo: string }>(`/clips/${cid}/exportar`, { method: "POST", ...json(o) }),
+  urlOriginal: (cid: string) => `${BASE}/clips/${cid}/original`,
+  urlShort: (cid: string, archivo: string, descargar = false) => `${BASE}/clips/${cid}/shorts/${archivo}${descargar ? "?descargar=true" : ""}`,
+};
+
+// Graficos animados del editor (HyperFrames).
+export interface PlantillaGrafico {
+  id: string; nombre: string; dur: number; posicion: string; color?: string; descripcion: string;
+  campos: { id: string; etiqueta: string; defecto: string; lineas?: boolean }[];
+}
+export interface DatosGrafico { plantilla: string; valores: Record<string, string>; color?: string; posicion?: string }
+export interface GraficoHecho { archivo: string; duracion: number; ancho: number; alto: number }
+// Una idea de grafico que propuso Claude (en tiempo del video; sin renderizar todavia).
+export interface IdeaGrafico {
+  id: string; plantilla: string; nombre: string; valores: Record<string, string>; inicio: number; duracion: number;
+  posicion: string; color: string; motivo: string; frase: string;
+}
+
+// Tarjeta Publicar del paso Video.
+export interface Metadatos { plataforma: string; titulos: string[]; descripcion: string; hashtags: string[]; etiquetas: string[] }
+export interface Gancho {
+  plataforma: string; nota: number | null; bien: string[]; mal: string[]; alternativas: string[];
+  plano: { desde: number; hasta: number; texto: string } | null; palabras: number;
+}
+export interface DatosPublicar {
+  metadatos?: Metadatos; capitulos?: { lista: [number, string][]; texto: string }; gancho?: Gancho; traducciones?: string[];
+  idiomas: Record<string, string>; plataformas: Record<string, string>;
+}
+
+export interface ParteGrabada {
+  archivo: string; duracion: number; factor: number; cabe: boolean; sobran: number; texto: string; desde: number; hasta: number;
 }
 
 export interface Escena {
@@ -50,6 +127,7 @@ export const mini = (r: { id: string; miniatura?: string }) => r.miniatura || r.
 export interface SalidaGuion { texto: string; origen: string; palabras: number; duracion_estimada_s: number }
 export interface SalidaVoz {
   audio: string; srt: string; duracion: number; planos: Plano[];
+  sin_voz?: boolean; // voz = "ninguna": suena el audio de los clips
   // solo con audio propio
   texto?: string; texto_de?: "guion" | "transcripcion"; coincidencia?: number; idioma_detectado?: string;
 }
@@ -169,6 +247,28 @@ export const api = {
     archivos.forEach((a) => fd.append("archivos", a));
     return pedir<{ guardados: string[]; rechazados: string[] }>(`/proyectos/${id}/recursos?sub=${sub}`, { method: "POST", body: fd });
   },
+  editor: (id: string) => pedir<DatosEditor>(`/proyectos/${id}/editor`),
+  // Regrabar una parte de la voz (tiempos de la voz): ideas de Claude y la grabacion.
+  reescribirParte: (id: string, body: { desde: number; hasta: number; texto: string; pedido?: string }) =>
+    pedir<{ opciones: string[]; palabras: number }>(`/proyectos/${id}/editor/reescribir`, { method: "POST", ...json(body) }),
+  grabarParte: (id: string, body: { desde: number; hasta: number; texto: string }) =>
+    pedir<ParteGrabada>(`/proyectos/${id}/editor/grabar`, { method: "POST", ...json(body) }),
+  publicar: (id: string) => pedir<DatosPublicar>(`/proyectos/${id}/publicar`),
+  plantillasGraficos: () => pedir<{ plantillas: PlantillaGrafico[]; falta: string }>(`/graficos/plantillas`),
+  crearGrafico: (id: string, body: DatosGrafico & { duracion: number }) =>
+    pedir<GraficoHecho>(`/proyectos/${id}/graficos`, { method: "POST", ...json(body) }),
+  ideasGraficos: (id: string) => pedir<{ ideas: IdeaGrafico[]; pedido?: string }>(`/proyectos/${id}/graficos/ideas`),
+  proponerGraficos: (id: string, body: { cuantos: number; pedido: string }) =>
+    pedir<{ ideas: IdeaGrafico[] }>(`/proyectos/${id}/graficos/ideas`, { method: "POST", ...json(body) }),
+  hacerPublicar: (id: string, accion: string, body: Record<string, string>) =>
+    pedir<unknown>(`/proyectos/${id}/publicar/${accion}`, { method: "POST", ...json(body) }),
+  // Audios del proyecto para las pistas de audio del editor.
+  audios: (id: string) => pedir<{ audios: AudioProyecto[] }>(`/proyectos/${id}/audios`),
+  subirAudios: (id: string, archivos: File[]) => {
+    const fd = new FormData();
+    archivos.forEach((a) => fd.append("archivos", a));
+    return pedir<{ guardados: string[]; rechazados: string[] }>(`/proyectos/${id}/audios`, { method: "POST", body: fd });
+  },
   quitar: (id: string, nombre: string) =>
     pedir<{ ok: boolean }>(`/proyectos/${id}/recursos/${nombre.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" }),
 };
@@ -257,6 +357,7 @@ export const url = {
   promptsTxt: (id: string) => `${BASE}/proyectos/${id}/prompts.txt`,
   muestraClonada: (vid: string) => `${BASE}/voces-clonadas/${vid}/audio`,
   descargarMiniatura: (id: string) => `${BASE}/proyectos/${id}/miniatura-descargar`,
+  srtVideo: (id: string, idioma = "") => `${BASE}/proyectos/${id}/publicar/subtitulos.srt${idioma ? `?idioma=${idioma}` : ""}`,
 };
 
 /** Ultimo fotograma de un clip (PNG) para empezar el siguiente segmento encadenado. */

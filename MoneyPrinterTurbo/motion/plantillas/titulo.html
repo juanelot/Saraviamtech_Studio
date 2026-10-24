@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- Titulo de impacto: las palabras entran una a una; las marcadas con *asteriscos* van en color. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"texto","type":"string","label":"Texto","default":"Esto lo *cambia* todo"},
+  {"id":"color","type":"color","label":"Color","default":"#FFD447"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"centro"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: "Inter", "Montserrat", "Arial Black", Arial, sans-serif; }
+    #marco { position: absolute; left: 7%; right: 7%; display: flex; flex-wrap: wrap; justify-content: center;
+             gap: 0 0.28em; font-size: __TAM__px; line-height: 1.05; text-align: center; }
+    .p { display: inline-block; font-weight: 900; color: #fff; text-transform: uppercase;
+         text-shadow: 0 0.04em 0 rgba(0, 0, 0, 0.55), 0 0 0.25em rgba(0, 0, 0, 0.6); }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0"></div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const marco = document.getElementById("marco");
+    if (v.posicion === "arriba") marco.style.top = "12%";
+    else if (v.posicion === "abajo") marco.style.bottom = "22%";
+    else { marco.style.top = "50%"; marco.style.transform = "translateY(-50%)"; }
+    const palabras = String(v.texto).split(/\s+/).filter(Boolean);
+    const nodos = palabras.map((w) => {
+      const s = document.createElement("span");
+      const marcada = /^\*.*\*[.,!?]*$/.test(w);
+      s.className = "p";
+      s.textContent = marcada ? w.replace(/\*/g, "") : w;
+      if (marcada) s.style.color = v.color;
+      marco.appendChild(s);
+      return s;
+    });
+    // Las palabras entran en la primera mitad (como mucho 0,22 s entre una y otra).
+    const paso = Math.min(0.22, (D * 0.45) / Math.max(1, nodos.length));
+    const tl = gsap.timeline({ paused: true });
+    nodos.forEach((s, k) => {
+      tl.fromTo(s, { scale: 1.9, opacity: 0, y: "0.15em" }, { scale: 1, opacity: 1, y: 0, duration: 0.32, ease: "back.out(2.2)" }, 0.05 + k * paso);
+    });
+    tl.to(nodos, { scale: 1.04, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 1 }, 0.05 + nodos.length * paso + 0.2)
+      .to(nodos, { opacity: 0, y: "-0.2em", duration: 0.28, stagger: 0.03, ease: "power2.in" }, D - 0.4);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

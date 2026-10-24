@@ -25,6 +25,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
 
+# Estudio: graficos animados con HyperFrames (motion/). Necesita Node 22 y las
+# librerias de su Chrome headless (lo descarga `hyperframes browser ensure`).
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    apt-get update && apt-get install -y --no-install-recommends \
+        libgbm1 libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 \
+        libcups2 libasound2 libpangocairo-1.0-0 libxshmfence1 libgtk-3-0 \
+        fonts-liberation fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core fontconfig && \
+    rm -rf /var/lib/apt/lists/* && fc-cache -f
+ENV CONTAINER=true HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_NO_UPDATE_CHECK=1 DO_NOT_TRACK=1
+COPY motion/package.json motion/package-lock.json ./motion/
+RUN cd motion && npm ci --no-audit --no-fund && node node_modules/hyperframes/bin/hyperframes.mjs browser ensure
+
 # Fix security policy for ImageMagick
 RUN sed -i '/<policy domain="path" rights="none" pattern="@\*"/d' /etc/ImageMagick-6/policy.xml
 

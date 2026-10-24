@@ -9,7 +9,10 @@ Etapa ASIGNACION: que recurso va en cada plano.
                  (videos/ antes que images/, o al reves con preferir="imagen").
                  Los planos pasan a ser las escenas. Sin numeros: en orden.
 
-Encima se aplican los `fijados` de la persona ({indice_plano: id_recurso}).
+Encima se aplican los `fijados` de la persona ({indice_plano: id_recurso}) y lo
+que se toco en el editor (ver _editar): `limites` (donde se corta cada plano),
+`inicio_clip` (desde que segundo arranca un video) y `ajuste` (que hacer si el
+clip se queda corto). Ninguno entra en DEFECTOS: se leen con .get().
 La eleccion de Claude se cachea (asignacion/base.json) con la huella de SUS
 entradas, asi que fijar a mano un plano no vuelve a llamar a Claude.
 
@@ -37,6 +40,8 @@ DEFECTOS = {
 }
 
 TAMANO_TANDA = 50
+AJUSTES = ("repetir", "congelar", "lento")
+PLANO_MIN_S = 0.3
 
 
 def _clave(planos, recursos, p):
@@ -196,7 +201,7 @@ def ejecutar(ctx):
             eleccion = _rellenar(planos, recursos, eleccion)
             almacen.escribir_json(ruta_base, {"clave": clave, "eleccion": {str(k): v for k, v in eleccion.items()}})
 
-    fijados = {int(k): v for k, v in (p.get("fijados") or {}).items() if v in por_id}
+    fijados = {} if _limites(ctx) else _fijados(p, por_id)  # con limites, van por los planos nuevos
     cursor = Counter()
     salida = []
     for x in planos:
@@ -212,6 +217,7 @@ def ejecutar(ctx):
                        "ruta": r["ruta"], "dur_recurso": r.get("duracion", 0.0),
                        "offset": round(offset, 3), "motivo": motivo, "fijado": fijado})
 
+    salida = _editar(ctx, salida, por_id)
     almacen.escribir_json(os.path.join(carpeta, "planos.json"), salida)
     usados = len({s["recurso"] for s in salida})
     ctx.avisar(f"asignacion lista: {len(salida)} planos, {usados}/{len(recursos)} recursos usados", 100)
@@ -239,7 +245,7 @@ def _ejecutar_escenas(ctx):
         raise ValueError("no hay contenido subido para las escenas")
     por_id = {r["id"]: r for r in recursos}
     eleccion, faltan = _por_escenas(escenas, recursos, p.get("preferir", "video"))
-    fijados = {int(k): v for k, v in (p.get("fijados") or {}).items() if v in por_id}
+    fijados = {} if _limites(ctx) else _fijados(p, por_id)
     cursor = Counter()
     salida = []
     for e in escenas:
@@ -254,9 +260,92 @@ def _ejecutar_escenas(ctx):
                        "escena": e["scene_number"], "recurso": rid, "nombre": r["nombre"], "tipo": r["tipo"],
                        "ruta": r["ruta"], "dur_recurso": r.get("duracion", 0.0), "offset": round(offset, 3),
                        "motivo": motivo, "fijado": fijado})
+    salida = _editar(ctx, salida, por_id)
     almacen.escribir_json(os.path.join(ctx.dir("asignacion"), "planos.json"), salida)
     if faltan:
         logger.warning(f"escenas sin archivo: {faltan[:30]}{'...' if len(faltan) > 30 else ''}")
     usados = len({x["recurso"] for x in salida})
     ctx.avisar(f"{len(salida)} escenas asignadas, {len(faltan)} sin archivo", 100)
     return {"planos": salida, "recursos_usados": usados, "faltan": faltan}
+
+
+def _fijados(p, por_id):
+    return {int(k): v for k, v in (p.get("fijados") or {}).items() if v in por_id}
+
+
+def _limites(ctx):
+    """Cortes del editor, solo si son de ESTA voz (`limites_voz` = su duracion):
+    si la voz se rehace, los cortes viejos no valen y se vuelve a los de la voz."""
+    p = ctx.params
+    lim = p.get("limites")
+    dur = float((ctx.salidas.get("voz") or {}).get("duracion") or 0)
+    if not lim or abs(float(p.get("limites_voz") or 0) - dur) > 0.05:
+        return None
+    return sorted(float(t) for t in lim)
+
+
+def _palabras(ctx):
+    voz = ctx.salidas.get("voz") or {}
+    ruta = ctx.dir(voz.get("palabras") or "voz/palabras.json", crear=False)
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            return [(float(a), float(b), str(t)) for a, b, t in json.load(f)]
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def _editar(ctx, base, por_id):
+    """Lo que se hizo en el editor sobre la asignacion de base.
+
+    limites: los planos se rehacen cortando la voz en esos tiempos. Cada plano nuevo
+      hereda el recurso (y la escena) del plano de base donde cae su mitad, asi que
+      partir un plano deja el mismo clip en las dos mitades (la segunda sigue donde
+      iba) y la eleccion de Claude no se repite. El texto sale de las palabras.
+    inicio_clip: segundo del video donde arranca el plano (los siguientes usos del
+      mismo clip siguen desde ahi).
+    ajuste: si el clip no alcanza, repetir | congelar | lento (lo aplica el render)."""
+    p = ctx.params
+    lim = _limites(ctx)
+    inicio_clip = {int(k): float(v) for k, v in (p.get("inicio_clip") or {}).items()}
+    ajuste = {int(k): v for k, v in (p.get("ajuste") or {}).items() if v in AJUSTES}
+    if not base or not (lim or inicio_clip or ajuste):
+        return base
+    if lim:
+        a0, b0 = float(base[0]["inicio"]), float(base[-1]["fin"])
+        puntos = [a0]
+        for t in lim:
+            if puntos[-1] + PLANO_MIN_S <= t <= b0 - PLANO_MIN_S:
+                puntos.append(t)
+        puntos.append(b0)
+        palabras = _palabras(ctx)
+        fijados = _fijados(p, por_id)
+        nuevos = []
+        for i, (a, b) in enumerate(zip(puntos, puntos[1:])):
+            medio = (a + b) / 2
+            x = next((y for y in base if float(y["inicio"]) <= medio < float(y["fin"])),
+                     min(base, key=lambda y: abs((float(y["inicio"]) + float(y["fin"])) / 2 - medio)))
+            texto = " ".join(w[2].strip() for w in palabras if a <= (w[0] + w[1]) / 2 < b).strip()
+            n = {**x, "i": i, "inicio": round(a, 3), "fin": round(b, 3), "texto": texto or x["texto"], "fijado": False}
+            if i in fijados:
+                r = por_id[fijados[i]]
+                n.update(recurso=r["id"], nombre=r["nombre"], tipo=r["tipo"], ruta=r["ruta"],
+                         dur_recurso=r.get("duracion", 0.0), motivo="fijado a mano", fijado=True)
+            nuevos.append(n)
+        base = nuevos
+    cursor = Counter()
+    salida = []
+    for x in base:
+        x = dict(x)
+        dur = float(x["fin"]) - float(x["inicio"])
+        dur_rec = float(x.get("dur_recurso") or 0)
+        if x["tipo"] == "video" and x["i"] in inicio_clip and dur_rec:
+            offset = max(0.0, min(inicio_clip[x["i"]], dur_rec - 0.1))
+            cursor[x["recurso"]] = offset + dur
+            x["inicio_elegido"] = True
+        else:
+            offset = _seguir(cursor, x["recurso"], {"tipo": x["tipo"], "duracion": dur_rec}, dur)
+        x["offset"] = round(offset, 3)
+        if x["i"] in ajuste:
+            x["ajuste"] = ajuste[x["i"]]
+        salida.append(x)
+    return salida

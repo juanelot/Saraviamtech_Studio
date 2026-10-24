@@ -93,6 +93,15 @@ export default function PanelVoz({ id, vista, p, set, ejecutar, ocupado, recarga
             <AudioPropio id={id} voz={voz} nombre={(v.propia_nombre as string) || ""} ocupado={ocupado}
               subido={async () => { await recargar(); await ejecutar("voz"); }} />
           )}
+          {tipo === "propia" && (
+            <Campo etiqueta="Quitar silencios largos">
+              <Segmentado valor={String(Number(v.quitar_silencios) || 0)} onChange={(x) => set("voz", "quitar_silencios", Number(x) || null)}
+                opciones={[{ v: "0", t: "No" }, { v: "1", t: "Pausas de 1 s" }, { v: "0.6", t: "0,6 s" }, { v: "0.35", t: "0,35 s (rapido)" }]} />
+              <p className="mt-1.5 text-xs text-tinta-3">
+                Las pausas mas largas que eso se acortan antes de sincronizar (el video queda mas agil). Pulsa «Volver a sincronizar» para aplicarlo.
+              </p>
+            </Campo>
+          )}
           {tipo !== "propia" && (
             <Campo etiqueta="Velocidad">
               <Deslizador valor={Number(v.velocidad) || 1} min={0.7} max={1.5} paso={0.05}

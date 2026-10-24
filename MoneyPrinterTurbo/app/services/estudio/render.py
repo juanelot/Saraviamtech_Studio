@@ -22,6 +22,8 @@ from loguru import logger
 from app.models.schema import VideoAspect, VideoParams
 from app.services import video as mpt_video
 from app.services.estudio import acabado, edicion, medios
+from app.services.estudio import capas as capas_mod
+from app.services.estudio import retoques
 from app.services.estudio import voz as voz_mod
 from app.utils import utils
 
@@ -52,10 +54,22 @@ PARALELO = 3
 # Ken Burns: `zoom` es el TOPE por plano; ademas nunca mas rapido que ZOOM_VEL por
 # segundo (4 s -> 3.2 %). Todas las piezas de un plano siguen el MISMO movimiento.
 ZOOM_VEL = 0.008
+# Mejorar la voz (render.voz_mejorar, se lee con .get): quitar graves de fondo, suavizar las
+# "s", comprimir y emparejar el volumen a -16 LUFS (lo de YouTube). "fuerte" ademas quita ruido.
+MEJORAR_VOZ = {
+    "suave": "highpass=f=80,deesser,acompressor=threshold=-20dB:ratio=2.5:attack=5:release=150:makeup=1.5,"
+             "loudnorm=I=-16:TP=-1.5:LRA=11",
+    "fuerte": "afftdn=nf=-25,highpass=f=100,deesser,acompressor=threshold=-22dB:ratio=3.5:attack=5:release=120"
+              ":makeup=2,loudnorm=I=-16:TP=-1.5:LRA=9",
+}
 LENTO_MAX = 1.25  # voz de corrido: cuanto se puede ralentizar un clip antes de congelar su final
 # Sonido de los clips bajo la narracion, por clip: completo | solo_fuerte (solo los picos:
 # golpes, gritos; la musica de fondo del clip queda fuera) | silencio.
 SONIDO_MODOS = ("completo", "solo_fuerte", "silencio")
+# Si el clip es mas corto que su plano (lo elige el editor por plano).
+AJUSTE_CLIP = {"repetir": {"sin_bucle": False, "lento": False},
+               "congelar": {"sin_bucle": True, "lento": False},
+               "lento": {"sin_bucle": True, "lento": True}}
 SOLO_FUERTE = "agate=threshold=0.12:ratio=20:attack=2:release=180:range=0.003"
 
 
@@ -254,6 +268,9 @@ def ejecutar(ctx):
             # Clips enteros: cada escena dura lo que su clip y la voz se acomoda.
             ctx.avisar("ajustando la voz a la duracion de cada clip", 1)
             planos, voz = _voz_a_clips(ctx, planos, voz, ctx.dir("render"))
+    if not sin_voz:
+        # El editor puede decidir por plano que hacer si el clip no alcanza.
+        planos = [{**x, **AJUSTE_CLIP.get(x.get("ajuste"), {})} for x in planos]
     editorial = rapido and edicion.activa(p) and (not sin_voz or bool(voz.get("palabras")))
 
     # Editorial: Claude marca antes de los clips (las revelaciones deciden los
@@ -310,9 +327,42 @@ def ejecutar(ctx):
     srt = ctx.dir(voz["srt"], crear=False) if p["subtitulos"] and (not sin_voz or voz.get("palabras")) else ""
     if sin_voz:
         audio = audio_clips
-    elif any(_modo_sonido(x, p) != "silencio" for x in planos):
+    else:  # partes de la voz regrabadas en el editor, cada una en su mismo hueco
+        parches = retoques.validos(ctx.pid, p.get("voz_parches"), float(voz["duracion"]))
+        if parches:
+            ctx.avisar(f"editor: {len(parches)} parte(s) de la voz regrabada(s)", 72)
+            audio = retoques.aplicar(audio, parches, os.path.join(carpeta, "voz_retocada.wav"))
+        if MEJORAR_VOZ.get(p.get("voz_mejorar")):
+            ctx.avisar("mejorando la voz", 72)
+            audio = _mejorar_voz(audio, MEJORAR_VOZ[p["voz_mejorar"]], os.path.join(carpeta, "voz_mejorada.wav"))
+    # Editor: capas encima (fotos/videos, textos, audios) y cada pista donde la puso:
+    # la principal, la voz por tramos y los subtitulos por tramos, por separado.
+    dur_voz = float(voz["duracion"])
+    capas = capas_mod.validas(p.get("capas"), 100000.0)
+    col = capas_mod.colocacion(p, capas, dur_voz, sin_voz)
+    if (capas or not col["tal_cual"]) and not rapido:
+        logger.warning("las capas del editor necesitan el acabado rapido (ffmpeg con libass): se ignoran")
+        capas, col = [], capas_mod.colocacion({}, [], dur_voz, sin_voz)
+    total, antes = col["total"], col["principal"]
+    despues = max(0.0, round(total - antes - dur_voz, 3))
+    capas = capas_mod.validas(capas, total)
+    ass_extra = None
+    if not col["tal_cual"]:
+        ctx.avisar(f"editor: principal en {antes:g}s, voz en {len(col['voz'])} tramo(s), video de {total:g}s", 72)
+        combinado = capas_mod.alargar_video(combinado, antes, despues, os.path.join(carpeta, "combinado_largo.mp4"))
+        destino = os.path.join(carpeta, "voz_larga.wav")
+        audio = (capas_mod.alargar_audio(audio, antes, despues, destino) if sin_voz
+                 else capas_mod.colocar_audio(audio, col["voz"], total, destino))
+    if not sin_voz and any(_modo_sonido(x, p) != "silencio" for x in planos):
         ctx.avisar("sonido de los clips bajo la voz", 72)
-        audio = _voz_con_clips(planos, audio, p, carpeta)
+        audio = _voz_con_clips(planos, audio, p, carpeta, antes, despues)
+    if capas:
+        recursos_proy = capas_mod.recursos_del_proyecto(ctx.pid)
+        ctx.avisar(f"editor: {len(capas)} capas", 73)
+        combinado = capas_mod.superponer(combinado, capas, recursos_proy, w, h, _encaje,
+                                         os.path.join(carpeta, "combinado_capas.mp4"), pid=ctx.pid)
+        audio = capas_mod.mezclar_audio(ctx.pid, audio, capas, recursos_proy, os.path.join(carpeta, "audio_capas.wav"))
+        ass_extra = capas_mod.textos_ass(capas, p, w, h, os.path.join(carpeta, "textos.ass"))
     if p.get("acabado", "rapido") == "rapido" and not rapido:
         logger.warning("este ffmpeg no trae libass: se usa el acabado clasico (lento)")
     resumen_edicion = None
@@ -320,15 +370,29 @@ def ejecutar(ctx):
         logger.warning(f"la {edicion.nombre(p)} necesita el acabado rapido (ffmpeg con libass): se ignora")
     if editorial:
         ctx.avisar(f"{edicion.nombre(p)}: preparando subtitulos, rotulos y sonido", 73)
-        ed = edicion.preparar(ctx, voz, planos, p, w, h, float(voz["duracion"]))
+        ed = edicion.preparar(ctx, voz, planos, p, w, h, dur_voz)
         resumen_edicion = ed["resumen"]
         ctx.avisar(ed["resumen"], 76)
+        ass_ed, sfx = ed["ass"], ed["sfx"]
+        if not col["tal_cual"]:  # los textos van con los subtitulos y los golpes con los cortes
+            if ass_ed:
+                ass_ed = capas_mod.colocar_ass(ass_ed, col["subs"], os.path.join(carpeta, "edicion_corrida.ass"))
+            if sfx:
+                sfx = capas_mod.alargar_audio(sfx, antes, despues, os.path.join(carpeta, "sfx_largo.wav"))
         ctx.avisar("acabado rapido (ffmpeg): voz, musica, subtitulos y efectos", 78)
-        acabado.acabar(combinado, audio, None, p, w, h, float(voz["duracion"]), tmp_final,
-                       ass=ed["ass"], sfx=ed["sfx"], ducking=ed["ducking"], color=ed["color"])
+        acabado.acabar(combinado, audio, None, p, w, h, total, tmp_final,
+                       ass=ass_ed, sfx=sfx, ducking=ed["ducking"], color=ed["color"], ass_extra=ass_extra)
     elif rapido:
         ctx.avisar("acabado rapido (ffmpeg): voz, musica y subtitulos", 75)
-        acabado.acabar(combinado, audio, srt or None, p, w, h, float(voz["duracion"]), tmp_final)
+        ass_sub = None
+        cambios = {} if sin_voz else p.get("subs_texto")  # el texto que corrigio el editor
+        if srt and (cambios or not col["tal_cual"]):
+            ass_sub = os.path.join(carpeta, "subtitulos_voz.ass")
+            acabado.srt_a_ass(srt, ass_sub, p, w, h, cambios)
+        if ass_sub and not col["tal_cual"]:
+            ass_sub = capas_mod.colocar_ass(ass_sub, col["subs"], os.path.join(carpeta, "subtitulos_corridos.ass"))
+        acabado.acabar(combinado, audio, None if ass_sub else (srt or None), p, w, h, total, tmp_final,
+                       ass=ass_sub, ass_extra=ass_extra)
     else:
         ctx.avisar("acabado clasico de MPT (MoviePy): voz, musica y subtitulos -- tarda", 75)
         mpt_video.generate_video(
@@ -502,10 +566,21 @@ def _modo_sonido(x, p):
     return modo if modo in SONIDO_MODOS else "silencio"
 
 
-def _voz_con_clips(planos, voz_audio, p, carpeta):
-    """Mezcla la narracion con el sonido de los clips; con `sonido_bajo_voz` el sonido
-    de los clips baja solo mientras habla la voz y vuelve en las pausas."""
+def _mejorar_voz(audio, filtro, destino):
+    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", audio,
+                       "-af", filtro + ",aresample=44100", "-c:a", "pcm_s16le", destino], timeout=1800)
+    if r.returncode != 0 or not os.path.isfile(destino):
+        raise RuntimeError(f"no se pudo mejorar la voz: {r.stderr[-300:]}")
+    return destino
+
+
+def _voz_con_clips(planos, voz_audio, p, carpeta, antes=0.0, despues=0.0):
+    """Mezcla la narracion (ya colocada) con el sonido de los clips, que va con la
+    pista principal (`antes`/`despues`: su hueco en el video). Con `sonido_bajo_voz`
+    el sonido de los clips baja solo mientras habla la voz y vuelve en las pausas."""
     sonido = _audio_de_clips(planos, carpeta, [_modo_sonido(x, p) for x in planos], "sonido_clips")
+    if antes or despues:
+        sonido = capas_mod.alargar_audio(sonido, antes, despues, os.path.join(carpeta, "sonido_clips_largo.wav"))
     vol = float(p.get("sonido_volumen", 0.8))
     # Voz mono a los dos canales tal cual (la conversion por defecto la baja 3 dB).
     mono = re.search(r"Audio:.*\bmono\b", medios.correr([medios.ffmpeg(), "-hide_banner", "-i", voz_audio]).stderr)

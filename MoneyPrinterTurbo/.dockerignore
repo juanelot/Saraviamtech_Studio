@@ -22,3 +22,6 @@ __pycache__/
 
 storage/
 config.toml
+
+# Estudio: las dependencias de motion/ se instalan dentro de la imagen
+motion/node_modules/

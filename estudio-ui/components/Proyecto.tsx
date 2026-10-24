@@ -11,6 +11,7 @@ import PanelVoz from "./paneles/PanelVoz";
 import PanelEscenas from "./paneles/PanelEscenas";
 import PanelRecursos from "./paneles/PanelRecursos";
 import PanelAsignacion from "./paneles/PanelAsignacion";
+import PanelEditor from "./paneles/PanelEditor";
 import PanelVideo from "./paneles/PanelVideo";
 import PanelMiniatura from "./paneles/PanelMiniatura";
 
@@ -25,7 +26,7 @@ export interface PanelProps {
   irA: (parada: ParadaId) => void;
 }
 
-export type ParadaId = "material" | "guion" | "voz" | "escenas" | "recursos" | "asignacion" | "video" | "miniatura";
+export type ParadaId = "material" | "guion" | "voz" | "escenas" | "recursos" | "asignacion" | "editor" | "video" | "miniatura";
 
 const PARADAS: { id: ParadaId; etapa: EtapaId; titulo: string; sub: string }[] = [
   { id: "material", etapa: "guion", titulo: "Material", sub: "De que trata" },
@@ -34,6 +35,8 @@ const PARADAS: { id: ParadaId; etapa: EtapaId; titulo: string; sub: string }[] =
   { id: "escenas", etapa: "escenas", titulo: "Escenas", sub: "Prompts para Flow" },
   { id: "recursos", etapa: "recursos", titulo: "Contenido", sub: "Imagenes y videos" },
   { id: "asignacion", etapa: "asignacion", titulo: "Ajuste", sub: "Que se ve en cada frase" },
+  // Opcional: trabaja sobre la etapa Ajuste; "Todo hasta el video" no se detiene aqui.
+  { id: "editor", etapa: "asignacion", titulo: "Editor", sub: "Retoca a tu gusto" },
   { id: "video", etapa: "render", titulo: "Video", sub: "Montaje final" },
   // Fuera del grafo: se puede usar en cualquier momento.
   { id: "miniatura", etapa: "render", titulo: "Miniatura", sub: "Portada del video" },
@@ -46,7 +49,8 @@ const SIGUIENTE: Record<ParadaId, { texto: string; hasta?: EtapaId; ir?: ParadaI
   voz: { texto: "Escenas y prompts", ir: "escenas" },
   escenas: { texto: "Subir contenido", hasta: "escenas", ir: "recursos" },
   recursos: { texto: "Ajustar planos", hasta: "asignacion", ir: "asignacion" },
-  asignacion: { texto: "Montar video", hasta: "render", ir: "video" },
+  asignacion: { texto: "Abrir editor", hasta: "asignacion", ir: "editor" },
+  editor: { texto: "Montar video", hasta: "render", ir: "video" },
   video: { texto: "Montar video", hasta: "render", ir: "video" },
   miniatura: { texto: "Ver el video", ir: "video" },
 };
@@ -201,7 +205,7 @@ export default function Proyecto({ id }: { id: string }) {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 pb-40 pt-6">
+    <main className={`mx-auto px-4 pb-40 pt-6 ${parada === "editor" ? "max-w-[1900px]" : "max-w-6xl"}`}>
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <Link href="/" className="boton boton-fantasma !px-2.5"><ArrowLeft size={16} /></Link>
         <input
@@ -216,7 +220,7 @@ export default function Proyecto({ id }: { id: string }) {
       </div>
 
       {/* Etapas */}
-      <ol className="mb-6 grid grid-cols-4 gap-2 md:grid-cols-8">
+      <ol className={`mb-6 grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-9 ${parada === "editor" ? "mx-auto max-w-6xl" : ""}`}>
         {PARADAS.map((x, i) => {
           const est = estadoParada(x);
           const activa = x.id === parada;
@@ -269,6 +273,7 @@ export default function Proyecto({ id }: { id: string }) {
       {parada === "escenas" && <PanelEscenas {...props} />}
       {parada === "recursos" && <PanelRecursos {...props} />}
       {parada === "asignacion" && <PanelAsignacion {...props} />}
+      {parada === "editor" && <PanelEditor {...props} />}
       {parada === "video" && <PanelVideo {...props} />}
       {parada === "miniatura" && <PanelMiniatura {...props} />}
 

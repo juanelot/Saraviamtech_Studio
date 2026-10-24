@@ -120,10 +120,23 @@ def limpio(texto: str) -> str:
     return texto.replace("{", "(").replace("}", ")").replace("\\", "/")
 
 
-def srt_a_ass(srt: str, ass: str, p: dict, w: int, h: int):
+def con_cambios(lineas, cambios):
+    """Las lineas con el texto que corrigio el editor (`subs_texto`: {indice: texto};
+    vacio la quita). Mismo numero de lineas y mismos tiempos: las marcas de Claude
+    apuntan a las lineas por su indice."""
+    if not isinstance(cambios, dict) or not cambios:
+        return lineas
+    salida = []
+    for k, (a, b, t) in enumerate(lineas):
+        nuevo = cambios.get(str(k))
+        salida.append((a, b, t if nuevo is None else " ".join(str(nuevo).split())))
+    return salida
+
+
+def srt_a_ass(srt: str, ass: str, p: dict, w: int, h: int, cambios=None):
     estilo, prefijo = estilo_base(p, w, h)
     lineas = [f"Dialogue: 0,{_t_ass(a)},{_t_ass(b)},Default,,0,0,0,,{prefijo}{limpio(t)}"
-              for a, b, t in lineas_srt(srt)]
+              for a, b, t in con_cambios(lineas_srt(srt), cambios) if t]
     with open(ass, "w", encoding="utf-8") as f:
         f.write(cabecera(w, h, [estilo]) + "\n".join(lineas) + "\n")
 
@@ -141,8 +154,11 @@ def _ruta_filtro(ruta: str, cwd: str) -> str:
 
 def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
            duracion: float, destino: str, ass: str | None = None, sfx: str | None = None,
-           ducking: bool = False, color: str | None = None):
+           ducking: bool = False, color: str | None = None, ass_extra: str | None = None):
     """`ass`: subtitulos ya preparados (edicion editorial) en vez de convertir `srt`.
+    `ass_extra`: textos propios del editor, encima de los subtitulos.
+    Musica: `musica_desde`/`musica_hasta` (segundos del video) y `musica_offset`
+    (segundo de la cancion por el que entra), del editor.
     `sfx`: pista de efectos (misma duracion que el video). `ducking`: la musica
     baja sola mientras habla la voz. `color`: filtros de color/grano que van ANTES
     de los subtitulos (el texto no se tine ni lleva grano)."""
@@ -151,8 +167,13 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
     musica = mpt_video.get_bgm_file(bgm_type="random" if p.get("musica") else "",
                                     bgm_file="" if p.get("musica") in ("", "random", None) else p["musica"])
     args = [ff, "-hide_banner", "-loglevel", "error", "-y", "-i", combinado, "-i", audio]
+    m_desde = max(0.0, float(p.get("musica_desde") or 0))
+    m_hasta = min(duracion, float(p.get("musica_hasta") or duracion))
+    m_offset = max(0.0, float(p.get("musica_offset") or 0))
+    if musica and m_hasta - m_desde < 0.2:
+        musica = ""
     if musica:
-        args += ["-stream_loop", "-1", "-i", musica]
+        args += ["-stream_loop", "-1"] + (["-ss", f"{m_offset:.3f}"] if m_offset else []) + ["-i", musica]
     if sfx:
         args += ["-i", sfx]
     i_sfx = 3 if musica else 2
@@ -161,11 +182,12 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
     if srt and not ass:
         ass = os.path.join(carpeta, "subtitulos.ass")
         srt_a_ass(srt, ass, p, w, h)
-    if ass or color:
+    if ass or color or ass_extra:
         cadena = [color] if color else []
-        if ass:
-            cadena.append(f"subtitles={_ruta_filtro(ass, carpeta)}:"
-                          f"fontsdir={_ruta_filtro(utils.font_dir(), carpeta)}")
+        for archivo in (ass, ass_extra):
+            if archivo:
+                cadena.append(f"subtitles={_ruta_filtro(archivo, carpeta)}:"
+                              f"fontsdir={_ruta_filtro(utils.font_dir(), carpeta)}")
         filtros.append("[0:v]" + ",".join(cadena) + "[v]")
     vv = float(p["volumen_voz"])
     pistas = ["[voz]"]
@@ -175,8 +197,11 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
         filtros.append(f"[1:a]volume={vv}[voz]")
     if musica:
         mv = float(p["musica_volumen"])
-        fin = max(0.0, duracion - 2)
-        cadena = f"[2:a]volume={mv},afade=t=out:st={fin:.2f}:d=2"
+        largo = m_hasta - m_desde
+        cadena = (f"[2:a]atrim=0:{largo:.3f},asetpts=PTS-STARTPTS,volume={mv},"
+                  f"afade=t=out:st={max(0.0, largo - 2):.2f}:d={min(2.0, largo):.2f}")
+        if m_desde > 0:
+            cadena += f",adelay={int(m_desde * 1000)}:all=1"
         if ducking:
             # La voz controla un compresor sobre la musica: baja al hablar, vuelve en las pausas.
             filtros.append(cadena + "[mus0];[mus0][guia]sidechaincompress="
@@ -192,7 +217,7 @@ def acabar(combinado: str, audio: str, srt: str | None, p: dict, w: int, h: int,
                        "dropout_transition=0:normalize=0[a]")
     else:
         filtros.append("[voz]anull[a]")
-    recodificar = bool(ass or color)
+    recodificar = bool(ass or color or ass_extra)
     args += ["-filter_complex", ";".join(filtros),
              "-map", "[v]" if recodificar else "0:v", "-map", "[a]"]
 

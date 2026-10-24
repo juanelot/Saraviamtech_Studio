@@ -14,7 +14,9 @@ from app.services.estudio import almacen, grafo
 # Relativo a la carpeta del proyecto.
 CARPETAS = ("render/clips", "render/audio_clips", "render/sonido_clips", "render/voz_escenas")
 ARCHIVOS = ("render/combinado.mp4", "render/audio_clips.wav", "render/voz_escenas.wav", "render/voz_y_clips.wav",
-            "render/sonido_clips.wav",
+            "render/sonido_clips.wav", "render/combinado_largo.mp4", "render/combinado_capas.mp4",
+            "render/voz_larga.wav", "render/audio_capas.wav", "render/sfx_largo.wav", "render/sonido_clips_largo.wav",
+            "render/voz_retocada.wav", "render/voz_mejorada.wav",
             "render/final.tmp.mp4")
 
 

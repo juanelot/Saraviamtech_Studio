@@ -1,0 +1,76 @@
+<!doctype html>
+<!-- A contra B: dos paneles entran por los lados y un VS cae en medio con un golpe. Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"izquierda","type":"string","label":"Lado A","default":"Alquilar"},
+  {"id":"dato_izq","type":"string","label":"Dato A","default":"900 al mes"},
+  {"id":"derecha","type":"string","label":"Lado B","default":"Comprar"},
+  {"id":"dato_der","type":"string","label":"Dato B","default":"1.200 al mes"},
+  {"id":"color","type":"color","label":"Color","default":"#FF4D5E"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"centro"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: "Inter", "Montserrat", "Arial Black", Arial, sans-serif; }
+    #marco { position: absolute; inset: 0; display: flex; justify-content: center; padding: 0 5%; }
+    #escena { position: relative; display: flex; width: 100%; max-width: 15em; font-size: __TAM__px; gap: 0.25em; }
+    .lado { flex: 1 1 0; min-width: 0; padding: 0.55em 0.4em 0.6em; border-radius: 0.35em; text-align: center; color: #fff; }
+    #a { background: rgba(8, 10, 20, 0.78); }
+    .nombre { font-weight: 900; text-transform: uppercase; line-height: 1.05; white-space: nowrap; }
+    #escena.vertical { flex-direction: column; max-width: 11em; gap: 0.3em; }
+    .dato { font-weight: 700; font-size: 0.55em; margin-top: 0.4em; opacity: 0.95; overflow-wrap: anywhere; }
+    #vs { position: absolute; left: 50%; top: 50%; width: 1.5em; height: 1.5em; margin: -0.75em 0 0 -0.75em; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center; background: #fff; color: #0b0d16; font-weight: 900;
+          font-size: 0.85em; box-shadow: 0 0 0 0.12em rgba(8, 10, 20, 0.85); }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0">
+      <div id="escena">
+        <div class="lado" id="a"><div class="nombre"></div><div class="dato"></div></div>
+        <div class="lado" id="b"><div class="nombre"></div><div class="dato"></div></div>
+        <div id="vs">VS</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    const marco = document.getElementById("marco");
+    marco.style.alignItems = v.posicion === "arriba" ? "flex-start" : v.posicion === "abajo" ? "flex-end" : "center";
+    marco.style.paddingTop = v.posicion === "arriba" ? "12%" : "0";
+    marco.style.paddingBottom = v.posicion === "abajo" ? "22%" : "0";
+    const a = document.getElementById("a"), b = document.getElementById("b");
+    a.querySelector(".nombre").textContent = v.izquierda;
+    a.querySelector(".dato").textContent = v.dato_izq;
+    b.querySelector(".nombre").textContent = v.derecha;
+    b.querySelector(".dato").textContent = v.dato_der;
+    b.style.background = v.color;
+    a.style.borderTop = `0.12em solid ${v.color}`;
+    // En vertical (9:16) un lado sobre otro; el nombre que no quepa se achica en vez de partirse.
+    if (__ALTO__ > __ANCHO__) document.getElementById("escena").classList.add("vertical");
+    for (const n of document.querySelectorAll(".nombre")) {
+      const libre = n.parentElement.clientWidth * 0.9;
+      if (n.scrollWidth > libre) n.style.fontSize = `${libre / n.scrollWidth}em`;
+    }
+
+    const tl = gsap.timeline({ paused: true });
+    tl.from(a, { x: "-110%", opacity: 0, duration: 0.45, ease: "power4.out" }, 0)
+      .from(b, { x: "110%", opacity: 0, duration: 0.45, ease: "power4.out" }, 0.08)
+      .from([a.querySelector(".dato"), b.querySelector(".dato")], { opacity: 0, y: "0.4em", duration: 0.3, stagger: 0.1, ease: "power2.out" }, 0.4)
+      // El VS cae girando y sacude la escena al tocar.
+      .fromTo("#vs", { scale: 3.2, rotation: -40, opacity: 0 }, { scale: 1, rotation: 0, opacity: 1, duration: 0.3, ease: "power3.in" }, 0.5)
+      .to("#escena", { keyframes: { x: ["0.08em", "-0.06em", "0.04em", "0em"] }, duration: 0.24, ease: "none" }, 0.8)
+      .to("#vs", { scale: 1.12, duration: 0.4, ease: "sine.inOut", yoyo: true, repeat: 1 }, 1.2)
+      .to(a, { x: "-30%", opacity: 0, duration: 0.3, ease: "power2.in" }, D - 0.3)
+      .to(b, { x: "30%", opacity: 0, duration: 0.3, ease: "power2.in" }, D - 0.3)
+      .to("#vs", { scale: 0, duration: 0.25, ease: "power2.in" }, D - 0.3);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>

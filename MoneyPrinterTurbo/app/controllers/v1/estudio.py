@@ -20,7 +20,7 @@ from app.services import claude_cli
 from app.services.estudio import (almacen, asistente, creaciones, grafo, maestros, medios, recursos, referencias,
                                   series, voz_clonada)
 from app.services.estudio import miniatura as portada_video
-from app.services.estudio import escenas_clip, flow_gen, limpieza
+from app.services.estudio import clips, editor, escenas_clip, flow_gen, graficos, limpieza, publicar, retoques
 
 router = new_router()
 router.tags = ["Estudio"]
@@ -270,6 +270,49 @@ def quitar(pid: str, nombre: str):
 AUDIO_PROPIO = (".wav", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm")
 
 
+@router.get("/estudio/proyectos/{pid}/audios", summary="Audios del proyecto (para las pistas del editor)")
+def audios(pid: str):
+    _existe(pid)
+    carpeta = almacen.dir_proyecto(pid, "audios")
+    lista = []
+    if os.path.isdir(carpeta):
+        for n in sorted(os.listdir(carpeta)):
+            ruta = os.path.join(carpeta, n)
+            if os.path.isfile(ruta) and n.lower().endswith(AUDIO_PROPIO):
+                lista.append({"archivo": f"audios/{n}", "nombre": n, "duracion": medios.sondear(ruta)["duracion"]})
+    return {"audios": lista}
+
+
+@router.post("/estudio/proyectos/{pid}/audios", summary="Subir audios (efectos, sonidos) para el editor")
+def subir_audios(pid: str, archivos: list[UploadFile] = File(...)):
+    _existe(pid)
+    carpeta = almacen.dir_proyecto(pid, "audios", crear=True)
+    guardados, rechazados = [], []
+    for a in archivos:
+        nombre = NOMBRE_SEGURO.sub("_", os.path.basename(a.filename or "")).strip()
+        if not nombre.lower().endswith(AUDIO_PROPIO):
+            rechazados.append(a.filename)
+            continue
+        destino = almacen.dentro_de(carpeta, nombre)
+        with open(destino + ".part", "wb") as f:
+            shutil.copyfileobj(a.file, f, 1 << 20)
+        os.replace(destino + ".part", destino)
+        guardados.append(f"audios/{nombre}")
+    return {"guardados": guardados, "rechazados": rechazados}
+
+
+@router.delete("/estudio/proyectos/{pid}/audios/{nombre}", summary="Quitar un audio del proyecto")
+def quitar_audio(pid: str, nombre: str):
+    _existe(pid)
+    try:
+        ruta = almacen.dentro_de(almacen.dir_proyecto(pid, "audios"), nombre)
+    except ValueError:
+        raise HTTPException(400, "nombre no valido")
+    if os.path.isfile(ruta):
+        os.remove(ruta)
+    return {"ok": True}
+
+
 @router.post("/estudio/proyectos/{pid}/voz-propia", summary="Subir una narracion ya grabada como voz")
 def voz_propia(pid: str, audio: UploadFile = File(...)):
     """Guarda el audio en voz_propia/<hash><ext> y pone voz = "propia:<archivo>":
@@ -403,6 +446,151 @@ def flow_detener(pid: str, body: dict = Body(default={})):
 
 
 # ------------------------------------------------------------------ archivos
+
+@router.get("/estudio/proyectos/{pid}/editor", summary="Palabras y forma de onda de la voz (editor)")
+def datos_editor(pid: str):
+    return editor.datos(_existe(pid)["id"])
+
+
+def _retoque(fn, *args):
+    try:
+        return fn(*args)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001 -- Claude o el TTS fallaron: que la persona lo vea
+        raise HTTPException(502, str(e)[:500])
+
+
+@router.post("/estudio/proyectos/{pid}/editor/reescribir", summary="Claude propone otro texto para una parte de la voz")
+def reescribir_parte(pid: str, body: dict = Body(...)):
+    """body: {"desde", "hasta" (tiempo de la voz), "texto" (lo que dice ahora), "pedido"}."""
+    return _retoque(retoques.reescribir, _existe(pid)["id"], body.get("desde"), body.get("hasta"),
+                    str(body.get("texto") or ""), str(body.get("pedido") or ""))
+
+
+# ------------------------------------------------------------------ Clip Studio (video largo -> shorts)
+
+def _clip(fn, *args):
+    try:
+        return fn(*args)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.get("/estudio/clips", summary="Sesiones de Clip Studio")
+def clips_listar():
+    return {"sesiones": clips.listar()}
+
+
+@router.post("/estudio/clips", summary="Subir un video largo para sacarle shorts (se transcribe solo)")
+def clips_crear(archivo: UploadFile = File(...)):
+    return _clip(clips.crear, archivo.filename, archivo.file)
+
+
+@router.get("/estudio/clips/{cid}", summary="Estado, frases, propuestas y shorts de una sesion")
+def clips_ver(cid: str):
+    return _clip(clips.ver, cid)
+
+
+@router.delete("/estudio/clips/{cid}", summary="Borrar una sesion de Clip Studio")
+def clips_borrar(cid: str):
+    _clip(clips.borrar, cid)
+    return {"ok": True}
+
+
+@router.post("/estudio/clips/{cid}/proponer", summary="Claude propone los mejores momentos")
+def clips_proponer(cid: str, body: dict = Body(default={})):
+    """body: {"cuantos": 5, "duracion": "corto|medio|largo", "pedido": ""}."""
+    _clip(clips.proponer, cid, body.get("cuantos") or 5, body.get("duracion") or "medio", body.get("pedido") or "")
+    return clips.ver(cid)
+
+
+@router.put("/estudio/clips/{cid}/propuestas", summary="Guardar los clips editados a mano")
+def clips_propuestas(cid: str, body: dict = Body(...)):
+    return {"propuestas": _clip(clips.guardar_propuestas, cid, body.get("propuestas"))}
+
+
+@router.post("/estudio/clips/{cid}/exportar", summary="Hacer el short vertical de un tramo")
+def clips_exportar(cid: str, body: dict = Body(...)):
+    return _clip(clips.exportar, cid, body)
+
+
+@router.get("/estudio/clips/{cid}/original", summary="El video largo")
+def clips_original(cid: str):
+    return FileResponse(_clip(clips.ruta_original, cid))
+
+
+@router.get("/estudio/clips/{cid}/shorts/{nombre}", summary="Un short ya hecho")
+def clips_short(cid: str, nombre: str, descargar: bool = Query(default=False)):
+    ruta = _clip(clips.ruta_export, cid, nombre)
+    return FileResponse(ruta, media_type="video/mp4", filename=f"short-{nombre}" if descargar else None)
+
+
+@router.get("/estudio/graficos/plantillas", summary="Plantillas de graficos animados (HyperFrames)")
+def plantillas_graficos():
+    return {"plantillas": graficos.catalogo(), "falta": graficos.disponible()}
+
+
+@router.post("/estudio/proyectos/{pid}/graficos", summary="Renderizar un grafico animado transparente para el editor")
+def crear_grafico(pid: str, body: dict = Body(...)):
+    """body: {"plantilla", "valores": {...}, "color"?, "posicion"?, "duracion"?}. Tarda ~30 s (en cache si se repite)."""
+    return _retoque(graficos.renderizar, _existe(pid)["id"], str(body.get("plantilla") or ""), body.get("valores") or {},
+                    body.get("color"), body.get("posicion"), body.get("duracion"))
+
+
+@router.get("/estudio/proyectos/{pid}/graficos/ideas", summary="Las ultimas ideas de graficos que propuso Claude")
+def ver_ideas_graficos(pid: str):
+    return {"ideas": [], **graficos.ideas_guardadas(_existe(pid)["id"])}
+
+
+@router.post("/estudio/proyectos/{pid}/graficos/ideas", summary="Claude propone graficos animados para todo el video")
+def proponer_graficos(pid: str, body: dict = Body(default={})):
+    """body: {"cuantos"?: 1-15, "pedido"?: texto}. No renderiza: devuelve las ideas para elegir."""
+    return _retoque(graficos.proponer, _existe(pid)["id"], body.get("cuantos") or 6, str(body.get("pedido") or ""))
+
+
+@router.get("/estudio/proyectos/{pid}/publicar", summary="Lo ya generado para publicar (titulos, capitulos, gancho...)")
+def ver_publicar(pid: str):
+    return {**publicar.guardado(_existe(pid)["id"]), "idiomas": publicar.IDIOMAS, "plataformas": publicar.PLATAFORMAS}
+
+
+@router.post("/estudio/proyectos/{pid}/publicar/{accion}", summary="Generar titulos, capitulos, traduccion o analisis del gancho")
+def hacer_publicar(pid: str, accion: str, body: dict = Body(default={})):
+    """accion: metadatos | capitulos | traducir | gancho. body: {"plataforma"?, "idioma"?}."""
+    pid = _existe(pid)["id"]
+    plataforma = str(body.get("plataforma") or "youtube")
+    acciones = {
+        "metadatos": lambda: publicar.metadatos(pid, plataforma),
+        "capitulos": lambda: publicar.capitulos(pid),
+        "traducir": lambda: publicar.traducir(pid, str(body.get("idioma") or "")),
+        "gancho": lambda: publicar.gancho(pid, plataforma),
+    }
+    if accion not in acciones:
+        raise HTTPException(404, "herramienta desconocida")
+    return _retoque(acciones[accion])
+
+
+@router.get("/estudio/proyectos/{pid}/publicar/subtitulos.srt", summary="Descargar los subtitulos del video (o una traduccion)")
+def srt_publicar(pid: str, idioma: str = Query(default="")):
+    pid = _existe(pid)["id"]
+    try:
+        texto = publicar.srt_de(pid, idioma)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(404, str(e))
+    nombre = f"subtitulos{'_' + idioma if idioma else ''}.srt"
+    return PlainTextResponse(texto, media_type="application/x-subrip; charset=utf-8",
+                             headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@router.post("/estudio/proyectos/{pid}/editor/grabar", summary="Regrabar una parte de la voz con otro texto")
+def grabar_parte(pid: str, body: dict = Body(...)):
+    """body: {"desde", "hasta", "texto"}. Devuelve el archivo, su duracion y si cabe en el hueco."""
+    return _retoque(retoques.grabar, _existe(pid)["id"], body.get("desde"), body.get("hasta"), body.get("texto"))
+
 
 @router.get("/estudio/proyectos/{pid}/archivo/{ruta:path}", summary="Servir una salida del proyecto")
 def archivo(pid: str, ruta: str):

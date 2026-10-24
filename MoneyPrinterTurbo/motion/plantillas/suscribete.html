@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- Llamada a suscribirse: boton con campana, un cursor hace clic y pasa a "Suscrito". Plantilla propia del Estudio. -->
+<html lang="es" data-composition-variables='[
+  {"id":"texto","type":"string","label":"Texto","default":"Suscribete"},
+  {"id":"hecho","type":"string","label":"Tras el clic","default":"Suscrito"},
+  {"id":"color","type":"color","label":"Color","default":"#FF1E3C"},
+  {"id":"posicion","type":"string","label":"Posicion","default":"abajo"}
+]'>
+<head>
+  <meta charset="UTF-8" />
+  <script src="gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: __ANCHO__px; height: __ALTO__px; overflow: hidden; background: transparent; }
+    body { font-family: "Inter", "Montserrat", Arial, sans-serif; }
+    #marco { position: absolute; left: 0; right: 0; display: flex; justify-content: center; font-size: __TAM__px; }
+    #grupo { position: relative; display: flex; align-items: center; gap: 0.35em; }
+    #boton { position: relative; display: flex; align-items: center; justify-content: center; padding: 0.3em 0.75em;
+             border-radius: 0.3em; color: #fff; font-weight: 800; white-space: nowrap;
+             box-shadow: 0 0.08em 0.3em rgba(0, 0, 0, 0.45); }
+    #hecho { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+             border-radius: 0.3em; background: #3a3a3f; color: #ddd; opacity: 0; }
+    #campana { width: 1.35em; height: 1.35em; border-radius: 50%; background: rgba(8, 10, 20, 0.7); display: flex;
+               align-items: center; justify-content: center; box-shadow: 0 0.08em 0.3em rgba(0, 0, 0, 0.45); }
+    #campana svg { width: 0.75em; height: 0.75em; fill: #fff; transform-origin: 50% 10%; }
+    #cursor { position: absolute; width: 0.9em; height: 0.9em; left: 50%; top: 60%; filter: drop-shadow(0 0.04em 0.06em rgba(0,0,0,.6)); }
+    #onda { position: absolute; left: 50%; top: 50%; width: 1em; height: 1em; margin: -0.5em 0 0 -0.5em; border-radius: 50%;
+            border: 0.06em solid #fff; opacity: 0; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main" data-start="0" data-duration="__DURACION__" data-width="__ANCHO__" data-height="__ALTO__">
+    <div id="marco" class="clip" data-start="0" data-duration="__DURACION__" data-track-index="0">
+      <div id="grupo">
+        <div id="boton"><span id="texto"></span><span id="hecho"></span><span id="onda"></span></div>
+        <div id="campana">
+          <svg viewBox="0 0 24 24"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"/></svg>
+        </div>
+        <svg id="cursor" viewBox="0 0 24 24"><path fill="#fff" stroke="#111" stroke-width="1.4" d="M5 2l14 12-6.2.9 3.6 7.1-2.9 1.4-3.5-7.2L5 20z"/></svg>
+      </div>
+    </div>
+  </div>
+  <script>
+    const v = window.__hyperframes.getVariables();
+    const D = __DURACION__;
+    document.getElementById("texto").textContent = v.texto;
+    document.getElementById("hecho").textContent = v.hecho;
+    document.getElementById("boton").style.background = v.color;
+    const marco = document.getElementById("marco");
+    if (v.posicion === "arriba") marco.style.top = "10%";
+    else if (v.posicion === "centro") { marco.style.top = "50%"; marco.style.transform = "translateY(-50%)"; }
+    else marco.style.bottom = __ALTO__ > __ANCHO__ ? "20%" : "10%";
+    const clic = Math.min(1.3, D * 0.4);
+    const tl = gsap.timeline({ paused: true });
+    tl.from("#grupo", { y: "1.2em", opacity: 0, duration: 0.45, ease: "back.out(1.7)" }, 0)
+      .fromTo("#cursor", { x: "3em", y: "2em", opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 0.6, ease: "power2.out" }, clic - 0.65)
+      .to("#cursor", { scale: 0.8, duration: 0.08, yoyo: true, repeat: 1 }, clic)
+      .to("#boton", { scale: 0.93, duration: 0.08, yoyo: true, repeat: 1 }, clic)
+      .fromTo("#onda", { scale: 0.3, opacity: 0.9 }, { scale: 3, opacity: 0, duration: 0.5, ease: "power2.out" }, clic)
+      .to("#hecho", { opacity: 1, duration: 0.12 }, clic + 0.08)
+      .to("#campana svg", { rotation: 18, duration: 0.09, yoyo: true, repeat: 5, ease: "sine.inOut" }, clic + 0.35)
+      .to("#cursor", { opacity: 0, x: "1.5em", y: "1.5em", duration: 0.35 }, clic + 0.5)
+      .to("#grupo", { y: "1em", opacity: 0, duration: 0.3, ease: "power2.in" }, D - 0.35);
+    window.__timelines = window.__timelines || {};
+    window.__timelines["main"] = tl;
+  </script>
+</body>
+</html>
