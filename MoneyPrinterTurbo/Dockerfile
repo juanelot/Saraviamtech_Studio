@@ -32,7 +32,7 @@ COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/nod
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     apt-get update && apt-get install -y --no-install-recommends \
-        libgbm1 libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 \
+        unzip libgbm1 libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 \
         libcups2 libasound2 libpangocairo-1.0-0 libxshmfence1 libgtk-3-0 \
         fonts-liberation fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core fontconfig && \
     rm -rf /var/lib/apt/lists/* && fc-cache -f
