@@ -30,6 +30,7 @@ perfil_zenn.json
 # Generador de Google Flow (solo local)
 tools/flow/node_modules/
 tools/flow/.flow.lock/
+tools/flow/perfiles.json*
 tools/flow/state.json
 
 # Fabrica: crudos de Flow al hacer la biblioteca de dibujos

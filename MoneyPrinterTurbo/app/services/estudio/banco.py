@@ -194,8 +194,8 @@ def _bajar(url, destino):
                 "merge_output_format": "mp4", "format": "bv*[height<=720][ext=mp4]/bv*[height<=720]/b[height<=720]/b",
                 "socket_timeout": 30, "noplaylist": True,
                 "match_filter": yt_dlp.utils.match_filter_func(f"duration <= {DURACION_MAX}")}
-    with yt_dlp.YoutubeDL(opciones) as y:
-        info = y.extract_info(url, download=True)
+    from app.services.estudio import youtube
+    info = youtube.extraer(opciones, url, True)
     bajado = next((os.path.join(os.path.dirname(destino), n) for n in os.listdir(os.path.dirname(destino))
                    if n.startswith("origen.") and not n.endswith((".part", ".ytdl"))), None)
     if not bajado:

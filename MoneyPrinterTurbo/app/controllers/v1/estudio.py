@@ -440,6 +440,26 @@ def flow_generar(pid: str, body: dict = Body(default={})):
     return flow_gen.estado(pid, escenas)
 
 
+@router.get("/estudio/proyectos/{pid}/flow/videos", summary="Clips de Veo por escena (imagen + prompt de video)")
+def flow_videos_estado(pid: str):
+    _flow()
+    return flow_gen.estado_videos(pid, _escenas(pid))
+
+
+@router.post("/estudio/proyectos/{pid}/flow/videos", summary="Hacer con Veo los clips que faltan (desde la imagen de cada escena)")
+def flow_videos_generar(pid: str):
+    _flow()
+    escenas = _escenas(pid)
+    aspecto = grafo.params_efectivos(_existe(pid), "render").get("aspecto") or "16:9"
+    try:
+        flow_gen.iniciar_videos(pid, escenas, aspecto)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return flow_gen.estado_videos(pid, escenas)
+
+
 @router.post("/estudio/proyectos/{pid}/flow/detener", summary="Detener la generacion en Flow")
 def flow_detener(pid: str, body: dict = Body(default={})):
     _flow()
@@ -502,6 +522,26 @@ def clips_ver(cid: str):
 def clips_borrar(cid: str):
     _clip(clips.borrar, cid)
     return {"ok": True}
+
+
+@router.patch("/estudio/clips/{cid}", summary="Renombrar una sesion de Clip Studio")
+def clips_renombrar(cid: str, body: dict = Body(...)):
+    return _clip(clips.renombrar, cid, body.get("titulo"))
+
+
+@router.patch("/estudio/clips/{cid}/shorts/{nombre}", summary="Renombrar un short hecho")
+def clips_short_renombrar(cid: str, nombre: str, body: dict = Body(...)):
+    return _clip(clips.renombrar_short, cid, nombre, body.get("titulo"))
+
+
+@router.delete("/estudio/clips/{cid}/shorts/{nombre}", summary="Borrar un short hecho")
+def clips_short_borrar(cid: str, nombre: str):
+    return _clip(clips.borrar_short, cid, nombre)
+
+
+@router.post("/estudio/clips/{cid}/shorts/{nombre}/rehacer", summary="Rehacer un short con sus mismas opciones")
+def clips_short_rehacer(cid: str, nombre: str):
+    return _clip(clips.rehacer_short, cid, nombre)
 
 
 @router.post("/estudio/clips/{cid}/proponer", summary="Claude propone los mejores momentos")
@@ -591,6 +631,15 @@ def virales_temas(body: dict = Body(...)):
 @router.get("/estudio/fabrica/parecido", summary="Video ya hecho que se parece a un tema (o null)")
 def fabrica_parecido(tema: str, nicho: str = ""):
     return {"parecido": fabrica.parecido(tema, nicho or None)}
+
+
+@router.get("/estudio/fabrica/voces-gemini/muestra", summary="Unos segundos de una voz de Gemini para elegirla")
+def fabrica_muestra_gemini(voz: str = Query(...), idioma: str = Query("espanol")):
+    from app.services.estudio import voz_gemini
+    try:
+        return FileResponse(voz_gemini.muestra(voz, idioma), media_type="audio/mpeg")
+    except voz_gemini.ErrorGemini as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/estudio/fabrica/estilos", summary="Galeria de estilos de la Fabrica (hace las muestras que falten)")
@@ -1471,8 +1520,28 @@ from app.services.estudio import ajustes  # noqa: E402
 
 @router.get("/estudio/ajustes", summary="Opciones editables + estado de Claude y Flow")
 def ajustes_ver(comprobar_flow: bool = Query(False, description="abrir Flow para ver si hay sesion")):
+    from app.services.estudio import telegram
     return {"opciones": ajustes.opciones(), "claude": ajustes.claude_estado(),
-            "flow": ajustes.flow_estado(comprobar_flow)}
+            "flow": ajustes.flow_estado(comprobar_flow), "telegram": telegram.info()}
+
+
+@router.get("/estudio/ajustes/telegram", summary="Estado del bot de Telegram y chats que piden permiso")
+def ajustes_telegram():
+    from app.services.estudio import telegram
+    return telegram.info()
+
+
+@router.post("/estudio/ajustes/telegram/permitir", summary="Permitir un chat en el bot de Telegram")
+def ajustes_telegram_permitir(body: dict = Body(...)):
+    try:
+        return {"opciones": ajustes.telegram_permitir(body.get("chat"))}
+    except ajustes.AjusteInvalido as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/estudio/ajustes/telegram/rechazar", summary="Quitar un chat de los que piden permiso")
+def ajustes_telegram_rechazar(body: dict = Body(...)):
+    return ajustes.telegram_rechazar(body.get("chat"))
 
 
 @router.patch("/estudio/ajustes", summary="Cambiar opciones (se guardan en config.toml)")
@@ -1481,6 +1550,14 @@ def ajustes_guardar(cambios: dict = Body(...)):
         return {"opciones": ajustes.guardar(cambios)}
     except ajustes.AjusteInvalido as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/estudio/ajustes/stock", summary="Anadir o quitar una clave de Pexels/Pixabay")
+def ajustes_stock(body: dict = Body(...)):
+    try:
+        return {"opciones": ajustes.stock(body.get("proveedor"), body.get("agregar"), body.get("quitar"))}
+    except ajustes.AjusteInvalido as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/estudio/ajustes/claude", summary="Estado de la sesion de Claude")
@@ -1509,6 +1586,36 @@ def ajustes_claude_desconectar():
         raise HTTPException(500, str(e))
 
 
+@router.get("/estudio/ajustes/youtube", summary="¿Hay cookies de YouTube subidas?")
+def ajustes_youtube():
+    from app.services.estudio import youtube
+    return youtube.estado()
+
+
+@router.post("/estudio/ajustes/youtube/cookies", summary="Subir el cookies.txt de YouTube (formato Netscape)")
+async def ajustes_youtube_subir(archivo: UploadFile = File(...)):
+    from app.services.estudio import youtube
+    contenido = await archivo.read()
+    if len(contenido) > 2_000_000:
+        raise HTTPException(400, "el archivo es demasiado grande para ser un cookies.txt")
+    try:
+        return youtube.guardar(contenido)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/estudio/ajustes/youtube/cookies", summary="Quitar las cookies de YouTube")
+def ajustes_youtube_borrar():
+    from app.services.estudio import youtube
+    return youtube.borrar()
+
+
+@router.post("/estudio/ajustes/youtube/probar", summary="Probar si YouTube deja descargar desde este equipo")
+def ajustes_youtube_probar():
+    from app.services.estudio import youtube
+    return youtube.probar()
+
+
 @router.get("/estudio/ajustes/flow", summary="Estado de Flow (comprueba la sesion)")
 def ajustes_flow():
     return ajustes.flow_estado(True)
@@ -1520,6 +1627,31 @@ def ajustes_flow_conectar():
         return ajustes.flow_conectar()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, str(e))
+
+
+@router.get("/estudio/ajustes/flow/cuentas", summary="Cuentas de Flow (un perfil de Chrome por cuenta) y sus creditos")
+def ajustes_flow_cuentas():
+    try:
+        return flow_gen.perfiles()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, str(e))
+
+
+@router.post("/estudio/ajustes/flow/cuentas", summary="Cuentas de Flow: nueva | abrir | quitar | revisar")
+def ajustes_flow_cuentas_accion(body: dict = Body(...)):
+    accion, n = body.get("accion"), body.get("perfil")
+    try:
+        if accion == "nueva":
+            return flow_gen.perfil_nuevo()
+        if accion == "abrir":
+            return flow_gen.perfil_abrir(n)
+        if accion == "quitar":
+            return flow_gen.perfil_quitar(n)
+        if accion == "revisar":
+            return flow_gen.revisar_perfiles()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+    raise HTTPException(400, "accion: nueva, abrir, quitar o revisar")
 
 
 @router.post("/estudio/ajustes/flow/desconectar", summary="Cerrar el Chrome de Flow")

@@ -4,7 +4,8 @@ idea; el codigo es nuestro).
 
   1. obtener:  enlace (yt-dlp, sin cuenta: YouTube, TikTok...) o archivo subido -> origen.mp4
   2. escuchar: Whisper -> cada palabra con su segundo (puede no haber voz: solo musica)
-  3. cortar:   ffmpeg detecta los cambios de plano -> planos [(desde, hasta)]
+  3. cortar:   el medidor de HyperFrames (Apache-2.0) ve cada corte, saltos dentro de una toma y rafagas incluidos;
+               si no esta, ffmpeg (ve muchos menos) -> planos [(desde, hasta)]
   4. mirar:    un fotograma por plano (y tres del gancho) en fotos/
   5. receta:   Claude mira los fotogramas (Read) y el texto de cada plano y devuelve la receta (receta.json)
 
@@ -15,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -25,7 +27,8 @@ from app.services import claude_cli
 from app.services.estudio import almacen, medios
 
 DURACION_MAX = 300    # segundos del video de referencia
-FOTOS_MAX = 36        # fotogramas que mira Claude (si hay mas planos, se reparten)
+FOTOS_MAX = 16        # fotogramas que mira Claude (si hay mas planos, se reparten): los cortes van todos como texto
+HF_MEDIR = "hyperframes@0.9.26"   # solo para medir cortes (el render de la Fabrica sigue con el de motion/)
 UMBRAL_CORTE = 0.3    # sensibilidad del detector de planos de ffmpeg
 TIPOS_PLANO = ("persona_hablando", "broll", "texto", "grafico", "ranking", "lista", "captura", "mapa", "meme", "producto")
 
@@ -172,8 +175,8 @@ def _bajar(url, destino):
                 "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b",
                 "socket_timeout": 30, "noplaylist": True,
                 "match_filter": yt_dlp.utils.match_filter_func(f"duration <= {DURACION_MAX}")}
-    with yt_dlp.YoutubeDL(opciones) as y:
-        info = y.extract_info(url, download=True)
+    from app.services.estudio import youtube
+    info = youtube.extraer(opciones, url, True)
     bajado = next((os.path.join(os.path.dirname(destino), n) for n in os.listdir(os.path.dirname(destino))
                    if n.startswith("origen.") and not n.endswith((".part", ".ytdl"))), None)
     if not bajado:
@@ -200,8 +203,26 @@ def _escuchar(cid, origen):
         os.remove(wav)
 
 
+def _cortes_hf(origen):
+    """Cortes de plano con `hyperframes measure cuts`; None si no se puede (sin node, sin red la primera vez...)."""
+    npx = shutil.which("npx")
+    if not npx:
+        return None
+    try:
+        r = medios.correr([npx, "-y", HF_MEDIR, "measure", "cuts", origen], timeout=600)
+        d = json.loads(r.stdout[r.stdout.index("{"):])
+        tomas = [(round(float(t["start"]), 3), round(float(t["end"]), 3)) for t in d.get("shots") or []]
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
+        logger.warning(f"medidor de cortes de HyperFrames: {e}")
+        return None
+    return tomas or None
+
+
 def _planos(origen, duracion):
-    """Cortes de plano de ffmpeg (los que estan a menos de 0,4 s del anterior se juntan)."""
+    """Cortes de plano: HyperFrames si esta; si no, ffmpeg (los que estan a menos de 0,4 s del anterior se juntan)."""
+    tomas = _cortes_hf(origen)
+    if tomas:
+        return [{"n": k + 1, "desde": a, "hasta": b, "foto": f"p{k + 1:02d}.jpg"} for k, (a, b) in enumerate(tomas)]
     r = medios.correr([medios.ffmpeg(), "-hide_banner", "-i", origen, "-vf", f"select='gt(scene,{UMBRAL_CORTE})',showinfo",
                        "-an", "-f", "null", "-"], timeout=900)
     cortes = [0.0]
@@ -216,7 +237,9 @@ def _fotos(origen, planos):
     """Un fotograma (360 px) de la mitad de cada plano, y tres del gancho (0,3 / 1,2 / 2,5 s)."""
     carpeta = os.path.join(os.path.dirname(origen), "fotos")
     os.makedirs(carpeta, exist_ok=True)
-    elegidos = planos if len(planos) <= FOTOS_MAX else [planos[round(k * (len(planos) - 1) / (FOTOS_MAX - 1))] for k in range(FOTOS_MAX)]
+    # con muchos planos se reparten las fotos entre los que duran algo (una rafaga de 0,2 s no dice nada en una foto)
+    largos = [p for p in planos if p["hasta"] - p["desde"] >= 0.5] or planos
+    elegidos = largos if len(largos) <= FOTOS_MAX else [largos[round(k * (len(largos) - 1) / (FOTOS_MAX - 1))] for k in range(FOTOS_MAX)]
     tareas = [(round((p["desde"] + p["hasta"]) / 2, 2), p["foto"]) for p in elegidos]
     tareas += [(t, f"g{k + 1}.jpg") for k, t in enumerate((0.3, 1.2, 2.5)) if t < planos[-1]["hasta"]]
     for t, nombre in tareas:

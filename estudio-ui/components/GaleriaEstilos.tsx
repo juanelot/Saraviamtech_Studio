@@ -28,7 +28,7 @@ export default function GaleriaEstilos({ valor, onCambio, compacta = false }: {
   return (
     <div>
       <div className={`grid gap-3 ${compacta ? "grid-cols-4" : "grid-cols-3 sm:grid-cols-5"}`}>
-        {g.estilos.map((e) => {
+        {g.estilos.filter((e) => !["mundo3d", "diorama3d"].includes(e.id) || valor === e.id).map((e) => {   // el 3D tiene su apartado (Video 3D)
           const elegido = e.id === valor;
           return (
             <button key={e.id} type="button" onClick={() => onCambio(e.id)} title={e.descripcion}

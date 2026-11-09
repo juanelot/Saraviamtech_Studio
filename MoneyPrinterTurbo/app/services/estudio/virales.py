@@ -27,11 +27,6 @@ POR_CUENTA = 60      # ultimos videos que se miran de cada cuenta
 GUARDADO = almacen.raiz("virales.json")
 
 
-def _yt():
-    import yt_dlp   # solo hace falta aqui
-    return yt_dlp
-
-
 def _url_cuenta(texto):
     """@cuenta, enlace de canal o de TikTok. En YouTube se miran sus Shorts."""
     t = str(texto or "").strip()
@@ -47,10 +42,9 @@ def _url_cuenta(texto):
 
 
 def _cuenta(url):
-    yt = _yt()
-    with yt.YoutubeDL({"extract_flat": "in_playlist", "quiet": True, "no_warnings": True, "playlistend": POR_CUENTA,
-                       "socket_timeout": 20}) as y:
-        info = y.extract_info(url, download=False)
+    from app.services.estudio import youtube
+    info = youtube.extraer({"extract_flat": "in_playlist", "quiet": True, "no_warnings": True, "playlistend": POR_CUENTA,
+                            "socket_timeout": 20}, url, False)
     nombre = info.get("channel") or info.get("uploader") or info.get("title") or url
     videos = []
     for e in info.get("entries") or []:
@@ -120,11 +114,10 @@ def _gancho(info):
 
 
 def detalle(url):
-    yt = _yt()
     opciones = {"quiet": True, "no_warnings": True, "skip_download": True, "socket_timeout": 20, "getcomments": True,
                 "extractor_args": {"youtube": {"max_comments": ["15", "15", "0", "0"], "comment_sort": ["top"]}}}
-    with yt.YoutubeDL(opciones) as y:
-        info = y.extract_info(url, download=False)
+    from app.services.estudio import youtube
+    info = youtube.extraer(opciones, url, False)
     vistas = info.get("view_count") or 0
     por_mil = lambda n: round(n * 1000 / vistas, 1) if vistas and n is not None else None   # noqa: E731
     comentarios = sorted(info.get("comments") or [], key=lambda c: c.get("like_count") or 0, reverse=True)

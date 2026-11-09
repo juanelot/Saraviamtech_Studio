@@ -36,7 +36,7 @@ export interface DatosEditor {
 // Clip Studio: de un video largo a shorts.
 export type EstadoClips = "transcribiendo" | "listo" | "proponiendo" | "exportando" | "error";
 export interface MomentoClip { id: string; inicio: number; fin: number; titulo: string; gancho: string; nota: number | null; motivo: string }
-export interface ShortHecho { archivo: string; titulo: string; inicio: number; fin: number; creado: number; tam_mb: number }
+export interface ShortHecho { archivo: string; titulo: string; inicio: number; fin: number; creado: number; tam_mb: number; opciones?: OpcionesShort }
 export interface SesionClips {
   id: string; titulo: string; duracion: number; ancho: number; alto: number; creado: number;
   estado: EstadoClips; progreso: number; mensaje: string; error: string | null;
@@ -63,6 +63,11 @@ export const clipStudio = {
   },
   ver: (cid: string) => pedir<DetalleClips>(`/clips/${cid}`),
   borrar: (cid: string) => pedir<{ ok: boolean }>(`/clips/${cid}`, { method: "DELETE" }),
+  renombrar: (cid: string, titulo: string) => pedir<SesionClips>(`/clips/${cid}`, { method: "PATCH", ...json({ titulo }) }),
+  renombrarShort: (cid: string, archivo: string, titulo: string) =>
+    pedir<DetalleClips>(`/clips/${cid}/shorts/${archivo}`, { method: "PATCH", ...json({ titulo }) }),
+  borrarShort: (cid: string, archivo: string) => pedir<DetalleClips>(`/clips/${cid}/shorts/${archivo}`, { method: "DELETE" }),
+  rehacerShort: (cid: string, archivo: string) => pedir<{ archivo: string }>(`/clips/${cid}/shorts/${archivo}/rehacer`, { method: "POST" }),
   proponer: (cid: string, body: { cuantos: number; duracion: string; pedido: string }) =>
     pedir<DetalleClips>(`/clips/${cid}/proponer`, { method: "POST", ...json(body) }),
   guardar: (cid: string, propuestas: MomentoClip[]) =>
@@ -77,18 +82,21 @@ export type FormatoFabrica = "9:16" | "16:9" | "1:1";
 export type EstadoFabrica = "en cola" | "guion" | "voz" | "render" | "montaje" | "revision" | "listo" | "error";
 export interface CatalogoFabrica {
   nichos: { id: string; nombre: string; descripcion: string }[];
-  series: { id: string; nombre: string; descripcion: string }[];
+  /** solo: la serie es de otro apartado (p. ej. "mundo3d", Video 3D) y no sale en la Fabrica */
+  series: { id: string; nombre: string; descripcion: string; solo?: string }[];
   /** personajes que pueden presentar el video (abajo a la derecha, hablando) */
   presentadores?: { id: string; nombre: string; descripcion: string; propio?: boolean }[];
   /** aspecto de los dibujos (familias): madera, plano, grabado, stickman... */
   visuales?: { id: string; nombre: string }[];
   estilos: { id: string; nombre: string; descripcion: string }[];
   formatos: FormatoFabrica[]; falta: string;
+  /** voces de Gemini (AI Studio): vacio si no hay clave en Configuracion */
+  voces_gemini?: { value: string; label: string; gender: string }[];
 }
 /** voz: de Microsoft o "propia:<archivo>" (grabacion subida con fabrica.subirAudio). musica: "random", "" o una cancion. */
 export interface OpcionesFabrica {
   tema: string; nicho: string; estilo: string; formatos: FormatoFabrica[]; voz: string; velocidad: number;
-  duracion: number; musica: string; musica_volumen: number; subtitulos: boolean; efectos: boolean; foco?: boolean; nuevos: boolean; idioma: string;
+  duracion: number; musica: string; musica_volumen: number; subtitulos: boolean; efectos: boolean; foco?: boolean; stock?: boolean; nuevos: boolean; idioma: string;
   /** serie de formato (mitos, abuela...) o vacio; marca: nombre del canal para el cierre */
   serie?: string; marca?: string;
   /** id de catalogo.presentadores o vacio */
@@ -103,6 +111,8 @@ export interface OpcionesFabrica {
   banco?: string[]; banco_modo?: "insertos" | "mayoria";
   /** se para tras el guion y las imagenes (estado "revision") para subir clips, tu voz o la musica; con clips, siempre */
   revisar?: boolean;
+  /** Claude da el guion, lo grabas leyendolo y se monta con tu voz (se para a esperarla). */
+  leer?: boolean;
 }
 /** molde: las opciones de un video que funciona, para repetirlas (sin tema) */
 export interface MoldeFabrica { id: string; nombre: string; creado: number; opciones: Omit<OpcionesFabrica, "tema"> }
@@ -113,6 +123,8 @@ export interface VideoFabrica { formato: FormatoFabrica; archivo: string; duraci
 export interface SesionFabrica {
   id: string; titulo: string; opciones: OpcionesFabrica; creado: number; actualizado: number;
   estado: EstadoFabrica; progreso: number; mensaje: string; error: string | null;
+  /** novela: escenas que se quedaron sin clip de Veo (sin creditos en las cuentas de Flow) */
+  aviso_clips?: string;
   /** videos largos: "00:00 Introduccion\n01:12 ..." para la descripcion de YouTube */
   capitulos?: string;
   /** saga: id de la saga, su nombre y (en el ultimo de una tanda) hacia donde puede seguir */
@@ -184,6 +196,9 @@ export const fabrica = {
     return pedir<{ clips: number[] }>(`/fabrica/${fid}/clip/${n}`, { method: "POST", body: fd });
   },
   borrarClip: (fid: string, n: number) => pedir<{ clips: number[] }>(`/fabrica/${fid}/clip/${n}`, { method: "DELETE" }),
+  /** unos segundos de una voz de Gemini (se generan la primera vez) */
+  urlMuestraVoz: (voz: string, idioma = "espanol") =>
+    `${BASE}/fabrica/voces-gemini/muestra?voz=${encodeURIComponent(voz)}&idioma=${encodeURIComponent(idioma)}`,
   urlVideo: (fid: string, formato: FormatoFabrica, descargar = false, v = 0) =>
     `${BASE}/fabrica/${fid}/video/${formato.replace(":", "x")}?v=${v}${descargar ? "&descargar=true" : ""}`,
 };
@@ -550,13 +565,35 @@ export const flow = {
     pedir<EstadoFlow>(`/proyectos/${id}/flow/generar`, { method: "POST", ...json({ reintentar_fallidas }) }),
   detener: (id: string, forzar = false) =>
     pedir<EstadoFlow>(`/proyectos/${id}/flow/detener`, { method: "POST", ...json({ forzar }) }),
+  videos: (id: string) => pedir<EstadoVeo>(`/proyectos/${id}/flow/videos`),
+  generarVideos: (id: string) => pedir<EstadoVeo>(`/proyectos/${id}/flow/videos`, { method: "POST" }),
 };
+export interface EstadoVeo {
+  corriendo: boolean; otro: boolean; resultado: string | null; motivo: string; mensaje: string;
+  cuenta: Record<"lista" | "pendiente" | "error" | "en_curso" | "sin_prompt" | "sin_imagen", number>;
+  escenas: { escena: number; estado: string; archivo: string | null; motivo: string }[];
+  clips_disponibles: number | null;
+}
 
 // Configuracion (/configuracion): opciones de config.toml + conexion a Claude y Flow.
 export interface OpcionesAjustes {
   claude_cli_model: string; claude_cli_effort: string; claude_cli_timeout: number;
   estudio_flow_habilitado: boolean; estudio_flow_modelo: string; estudio_flow_pasadas_extra: number;
   estudio_carpetas_permitidas: string[];
+  telegram_habilitado: boolean; telegram_chats: string[];
+  /** El token no se lee: solo si esta puesto y sus 4 ultimos caracteres. Para cambiarlo se manda telegram_token. */
+  telegram_token_puesto: boolean; telegram_token_final: string; telegram_token?: string;
+  gemini_clave_puesta: boolean; gemini_clave_final: string; gemini_api_key?: string;
+  /** claves de videos de stock: solo sus 4 ultimos caracteres, en orden */
+  pexels_claves: string[]; pixabay_claves: string[];
+}
+export interface CuentasFlow {
+  actual: number; ocupado: boolean; revisando: boolean; coste_video: number;
+  perfiles: { email?: string | null; creditos?: number | null; visto?: number; sin_sesion?: boolean; error?: string | null }[];
+}
+export interface EstadoTelegram {
+  activo: boolean; usuario: string | null; error: string | null; siguiendo: number;
+  pendientes: { chat: string; nombre: string; usuario: string; cuando: number }[];
 }
 export interface EstadoClaude {
   instalado: boolean; version: string | null; sesion: boolean; email: string | null; plan: string | null;
@@ -567,8 +604,23 @@ export interface EstadoFlowAjustes {
   habilitado: boolean; corriendo: boolean; chrome: boolean | null; sesion: boolean | null; motivo: string | null;
   disponible: boolean;
 }
+export interface EstadoYoutube { cookies: boolean; fecha: string | null; ok?: boolean; mensaje?: string }
+
 export const ajustes = {
-  ver: () => pedir<{ opciones: OpcionesAjustes; claude: EstadoClaude; flow: EstadoFlowAjustes }>("/ajustes"),
+  youtube: () => pedir<EstadoYoutube>("/ajustes/youtube"),
+  youtubeSubir: (archivo: File) => {
+    const fd = new FormData();
+    fd.append("archivo", archivo);
+    return pedir<EstadoYoutube>("/ajustes/youtube/cookies", { method: "POST", body: fd });
+  },
+  youtubeBorrar: () => pedir<EstadoYoutube>("/ajustes/youtube/cookies", { method: "DELETE" }),
+  youtubeProbar: () => pedir<EstadoYoutube>("/ajustes/youtube/probar", { method: "POST" }),
+  ver: () => pedir<{ opciones: OpcionesAjustes; claude: EstadoClaude; flow: EstadoFlowAjustes; telegram: EstadoTelegram }>("/ajustes"),
+  telegram: () => pedir<EstadoTelegram>("/ajustes/telegram"),
+  stock: (proveedor: "pexels" | "pixabay", cambio: { agregar?: string; quitar?: number }) =>
+    pedir<{ opciones: OpcionesAjustes }>("/ajustes/stock", { method: "POST", ...json({ proveedor, ...cambio }) }),
+  telegramPermitir: (chat: string) => pedir<{ opciones: OpcionesAjustes }>("/ajustes/telegram/permitir", { method: "POST", ...json({ chat }) }),
+  telegramRechazar: (chat: string) => pedir<{ ok: boolean }>("/ajustes/telegram/rechazar", { method: "POST", ...json({ chat }) }),
   guardar: (cambios: Partial<OpcionesAjustes>) =>
     pedir<{ opciones: OpcionesAjustes }>("/ajustes", { method: "PATCH", ...json(cambios) }),
   claude: () => pedir<EstadoClaude>("/ajustes/claude"),
@@ -577,6 +629,9 @@ export const ajustes = {
   claudeDesconectar: () => pedir<{ ok: boolean }>("/ajustes/claude/desconectar", { method: "POST" }),
   flow: () => pedir<EstadoFlowAjustes>("/ajustes/flow"),
   flowConectar: () => pedir<{ ok: boolean }>("/ajustes/flow/conectar", { method: "POST" }),
+  flowCuentas: () => pedir<CuentasFlow>("/ajustes/flow/cuentas"),
+  flowCuentasAccion: (accion: "nueva" | "abrir" | "quitar" | "revisar", perfil?: number) =>
+    pedir<CuentasFlow>("/ajustes/flow/cuentas", { method: "POST", ...json({ accion, perfil }) }),
   flowDesconectar: () => pedir<{ ok: boolean; cerrado?: boolean }>("/ajustes/flow/desconectar", { method: "POST" }),
 };
 

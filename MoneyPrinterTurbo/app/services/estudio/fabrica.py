@@ -34,9 +34,11 @@ import uuid
 
 from loguru import logger
 
+from app.config import config
+
 from app.services import claude_cli, voice
 from app.services.estudio import acabado, almacen, biblioteca, componentes, edicion, flow_gen, grafo, graficos, medios, satelite
-from app.services.estudio import banco, clonar, presentadores
+from app.services.estudio import banco, clonar, presentadores, voz_gemini
 from app.services.estudio import voz as etapa_voz
 
 DIR_FABRICA = os.path.join(graficos.DIR_MOTION, "fabrica")
@@ -85,6 +87,50 @@ ESTILOS = {
                         "ideas. Usa 'sello' con 'FALSO' o 'NO' para tachar una idea equivocada. Pon en la raiz \"cabecera\": "
                         "\"TEMA / SUBTEMA\" (2-4 palabras, sale arriba en cada escena). La portada lleva \"nueva\": "
                         "descripcion EN INGLES de la primera imagen (el sujeto del gancho)."},
+    "mundo3d": {"nombre": "Mundo 3D", "familia": "plano",
+                "escenas": ["portada", "mundo", "cifra", "lista", "versus", "barras", "linea_tiempo", "captura"],
+                "descripcion": "Un mundo 3D que se arma mientras hablas: objetos brillantes, camara de cine y lo dicho en gris.",
+                "guia": "ESTILO 'Mundo 3D' (explicador con un escenario 3D que se va armando): casi todas las escenas "
+                        "despues de la portada son 'mundo' (al menos 2 de cada 3), y entre ellas, para un dato o una "
+                        "comparacion, alguna 'cifra', 'lista' o 'versus'. Cada escena mundo trae a escena 1-3 cosas, cada "
+                        "una cuando se nombra; un PROTAGONISTA (lo que el video explica) vuelve en varias escenas con el "
+                        "mismo id; en todo el video 3-7 cosas distintas: una escena que crece, no un objeto nuevo en cada "
+                        "frase. Cada icono tiene que decir sin texto lo que dice la voz (si no hay uno claro, usa una cifra "
+                        "o una lista). La ultima escena mundo lleva \"plano\": \"general\" para ver todo lo armado."},
+    # Video 3D (su propio apartado, no sale en la galeria de la Fabrica): cada escena un diorama 3D hecho en Flow
+    "diorama3d": {"nombre": "Diorama 3D", "familia": "diorama", "palabras": "8-14", "segundos": "3-5", "nuevas": 14,
+                  "escenas": ["portada", "ilustracion", "cifra", "lista", "versus", "captura"],
+                  "descripcion": "Cada escena es un diorama 3D tipo juguete de plastilina, hecho para ese momento.",
+                  "guia": "ESTILO 'Diorama 3D' (explicador donde cada momento es un pequeno mundo 3D): casi todas las "
+                          "escenas despues de la portada son 'ilustracion' (al menos 3 de cada 4), y entre ellas, para un "
+                          "dato o una comparacion, alguna 'cifra', 'lista' o 'versus'. Cada ilustracion lleva \"nueva\": la "
+                          "descripcion EN INGLES de la escena como un diorama donde PASA lo que dice la voz (la masa "
+                          "inflandose, el camion cargando, el celular vibrando con el mensaje), con un sujeto claro. Varia "
+                          "el encuadre: el diorama entero, un primer plano de un detalle, un corte que ensena el interior, "
+                          "desde arriba, el antes y el despues. Un PROTAGONISTA (lo que el video explica) que vuelve en "
+                          "varias escenas descrito SIEMPRE con las mismas palabras (color, forma, ropa) para que se "
+                          "reconozca. Nada de texto escrito dentro de la imagen. La portada lleva \"nueva\": el momento mas "
+                          "sorprendente del video como diorama."},
+    # Novela: historia narrada con clips de Veo (Flow) mudos detras; los personajes tienen ficha (retrato de
+    # referencia) que acompana cada imagen y se hereda en los episodios siguientes. video = hacer clips de Veo.
+    "novela": {"nombre": "Novela", "familia": "novela", "palabras": "14-18", "segundos": "6-8", "nuevas": 12,
+               "escenas": ["portada", "ilustracion"], "video": True,
+               "descripcion": "Historia narrada con escenas de video como de serie: personajes que no cambian de cara.",
+               "guia": "ESTILO 'Novela' (historia dramatica por entregas, como una telenovela corta, contada por un "
+                       "narrador): protagonista con un deseo, un conflicto con otro personaje, secretos, giros y un "
+                       "final que deja con ganas del siguiente episodio. Pocos personajes (2-4). En la raiz pon "
+                       "\"personajes\": [{\"id\": \"maria\" (minusculas, sin espacios), \"nombre\": \"Maria\", "
+                       "\"aspecto\": \"EN INGLES: edad, rasgos, pelo, ropa fija (la misma en todo el video)\"}]. "
+                       "Todas las escenas despues de la portada son 'ilustracion', cada una con: \"nueva\" (EN INGLES, "
+                       "el fotograma inicial: quien esta, donde, que hace, el encuadre: plano general, medio, primer "
+                       "plano de la cara, detalle de las manos o de un objeto; nombra a los personajes por su nombre), "
+                       "\"personajes\": [ids que salen en ESA imagen, maximo 3] y \"video_prompt\" (EN INGLES, lo que "
+                       "pasa en los 8 s siguientes a partir de ese fotograma: la accion y el movimiento de camara, "
+                       "slow push in, handheld, tracking, rack focus; los personajes NO hablan: no dialogue, no lip "
+                       "movement). Cada escena es UN momento de 6-8 s (una o dos frases del narrador) y la imagen "
+                       "ENSENA lo que dice la voz. Varia los planos. Nada de sangre ni violencia explicita. Sin extras (emoji, sello, flecha) ni golpes de texto: manda la imagen. La portada "
+                       "lleva \"nueva\" (EN INGLES, el momento mas intrigante, con sus \"personajes\") y su titulo es "
+                       "una frase corta que engancha."},
     "thriller": {"nombre": "Thriller", "familia": "thriller", "palabras": "5-9", "segundos": "2-3", "nuevas": 20,
                  "escenas": ["portada", "ilustracion"],
                  "descripcion": "Historia de suspense dibujada a color, guantes blancos, planos cortos y portada en sombra.",
@@ -216,6 +262,24 @@ ESCENAS = {
     },
 }
 
+ESCENAS["mundo"] = {
+    "descripcion": "Un mundo 3D que se va armando: cada cosa (un objeto 3D brillante en su pedestal) entra al nombrarla, "
+                   "lo ya dicho se queda detras en gris y la camara cambia de plano sola. Las escenas 'mundo' forman UN "
+                   "solo escenario que crece de una a otra: es el hilo del video.",
+    "campos": '"cosas": [{"id": nombre corto de la cosa ("pedido", "camion"), IGUAL en otras escenas mundo cuando vuelve '
+              'a salir la MISMA cosa; "icono": un icono de Phosphor Icons en ingles, kebab-case, que se reconozca sin texto: el NOMBRE EXACTO del objeto en ingles (un robot es "robot", una furgoneta "van", '
+              'un barco "boat"; casi cualquier objeto comun existe) y nunca el mismo icono para dos cosas distintas '
+              '("truck", "house", "package", "piggy-bank", "credit-card", "device-mobile", "user", "users-three", "bank", '
+              '"coins", "shield-check", "warning", "lightning", "globe-hemisphere-west", "airplane", "factory", "storefront", '
+              '"brain", "heart", "clock", "trophy", "lock", "envelope", "chart-line-up", "rocket", "tree", "drop", "fire"...); '
+              '"modelo"?: "caja" (caja de carton en 3D: mejor que un icono para paquetes, envios y mudanzas); '
+              '"color"?: COLOR; "palabra": "..."}] (1-3 por escena; en todo el video 3-7 cosas distintas: un protagonista '
+              'que vuelve en varias escenas y pocas mas); "plano"?: "general" para cerrar una idea viendo todo lo armado '
+              '(si no, la camara va a cada cosa al nombrarla)',
+    "scripts": [],
+    "modulos": True,   # three.js como modulo (importmap en la cabeza)
+}
+
 # Estados del protagonista (motion/fabrica/graficas.js): los de color y tamano duran; los demas son un momento.
 ESTADOS = {
     "normal": "como es (vuelve a su color y tamano)", "gris": "sin color", "apagado": "gris y medio transparente",
@@ -236,6 +300,15 @@ FORMAS_CAPTURA = ("tuit", "noticia", "notificacion", "chat", "busqueda")
 COLORES = ("rojo", "azul", "verde", "amarillo", "naranja", "morado", "gris", "acento")
 
 NICHOS = {
+    "novelas": {
+        "nombre": "Novelas e historias",
+        "descripcion": "Historias de ficcion por entregas: drama, secretos, amor, traiciones y giros. Mejor con el estilo Novela.",
+        "escenas": ["portada", "ilustracion"],
+        "guia": "Historia de FICCION contada por un narrador (no es un video de datos): personajes y hechos inventados pero "
+                "creibles. Estructura: gancho con el momento mas fuerte o un secreto -> quien es la protagonista y que "
+                "quiere -> el conflicto que escala -> un giro que nadie espera -> cierre que deja una pregunta abierta. "
+                "Frases cortas, emocion concreta (lo que se ve, lo que se oye), nada de moralejas.",
+    },
     "mapas": {
         "nombre": "Mapas e historia",
         "descripcion": "Por que un territorio es de quien es, fronteras raras, guerras que cambiaron el mapa.",
@@ -351,6 +424,16 @@ SERIES = {
                 "foros: protagonista, situacion, problema, giro y final. Tension en cada escena; el giro casi al final. "
                 "Nada inventado: nombres, lugares y fechas reales.",
     },
+    "caidas": {
+        "nombre": "Auge y caida", "antetitulo": "Auge y caida",
+        "descripcion": "Un gigante, un escandalo o un invento que se vino abajo, contado como historia con su giro.",
+        "guia": "SERIE 'Auge y caida': un caso REAL (una empresa, un invento, un famoso o un fraude) que subio muy alto "
+                "y se cayo. El gancho es el GIRO o la cifra que no se cree (Blockbuster pudo comprar Netflix y se rio), "
+                "nunca el nombre del caso. Luego la historia en orden y con fechas, cada persona presentada con lo que la "
+                "hace importante, hasta el momento en que todo se cae o se descubre; despues que paso con ellos y con el "
+                "dinero, y como esta hoy. Las cifras de entonces con su ano. Las acusaciones se cuentan como acusaciones "
+                "y las condenas como condenas.",
+    },
     "noticias": {
         "nombre": "La noticia en 1 minuto", "antetitulo": "En 1 minuto",
         "descripcion": "Que paso, por que importa y que viene ahora.",
@@ -420,13 +503,16 @@ def _guardar(fid, **cambios):
 
 def catalogo():
     return {"nichos": [{"id": k, "nombre": n["nombre"], "descripcion": n["descripcion"]} for k, n in NICHOS.items()],
-            "series": [{"id": k, "nombre": s["nombre"], "descripcion": s["descripcion"]} for k, s in SERIES.items()],
+            "series": [{"id": k, "nombre": s["nombre"], "descripcion": s["descripcion"], **({"solo": s["solo"]} if s.get("solo") else {})}
+                       for k, s in SERIES.items()],
             "presentadores": [{"id": k, "nombre": x["nombre"], "descripcion": x["descripcion"]} for k, x in PRESENTADORES.items()]
             + [{"id": "propio:" + f["id"], "nombre": f["nombre"], "descripcion": f.get("descripcion") or "propio", "propio": True}
                for f in presentadores.listar()],
             "visuales": [{"id": k, "nombre": n} for k, n in biblioteca.NOMBRES_FAMILIA.items()],
             "estilos": [{"id": k, **e} for k, e in ESTILOS.items()],
-            "formatos": list(FORMATOS), "falta": graficos.disponible()}
+            "formatos": list(FORMATOS), "falta": graficos.disponible(),
+            # voces de Gemini: solo si hay clave en Configuracion
+            "voces_gemini": voz_gemini.listar() if voz_gemini.disponible() else []}
 
 
 def listar():
@@ -560,13 +646,19 @@ def _opciones(o, base=None):
             # el prompt de video de cada ilustracion para hacerlo aparte (Seedance, Veo...) y subirlo
             "receta": o.get("receta") if re.fullmatch(r"[0-9a-f]{12}", str(o.get("receta") or "")) else "",
             "clips": bool(o.get("clips", False)),
+            # stock: Claude marca escenas que se cuentan mejor con video real (Pexels, si no Pixabay) que con un dibujo
+            "stock": bool(o.get("stock", False)),
             # banco de clips: videos cortados en planos (banco.py) cuyos clips Claude pone detras de las ilustraciones
             "banco": [b for b in dict.fromkeys(o.get("banco") or []) if re.fullmatch(r"[0-9a-f]{12}", str(b))][:6]
             if isinstance(o.get("banco"), list) else [],
             "banco_modo": o.get("banco_modo") if o.get("banco_modo") in banco.MODOS else "insertos",
             # revisar: se para tras el guion y las imagenes (estado "revision") para subir clips, tu voz o elegir
             # la musica; luego montar() sigue. Con clips se para siempre (hay que subirlos antes de montar)
-            "revisar": bool(o.get("revisar", False)) or bool(o.get("clips", False)),
+            # leer: Claude da el guion, tu lo grabas leyendolo y se monta con tu voz (se para siempre a esperarla)
+            "leer": bool(o.get("leer", False)) and not str(o.get("voz") or "").startswith(etapa_voz.PROPIA),
+            # con clips en el PC con Flow los hace Veo solo; sin Flow (VPS) se para para subirlos
+            "revisar": bool(o.get("revisar", False)) or (bool(o.get("clips", False)) and not flow_gen.habilitado())
+            or bool(o.get("leer", False)),
             # aspecto de los dibujos: "" (el del estilo), "madera" o una familia (plano, grabado, stickman...)
             "visual": o.get("visual") if o.get("visual") == "madera" or o.get("visual") in biblioteca.FAMILIAS else "",
             # cierre de marca: el nombre del canal sale al final de cada video ("" = sin cierre)
@@ -670,7 +762,7 @@ def temporada(desde=None, opciones=None, cuantos=3, idea="", final=False, sin_pa
             raise ValueError("escribe de que va la saga")
         n0, sid, nombre, antes, pendiente = 1, uuid.uuid4().hex[:12], "", [], ""
     if sin_parar:   # los prompts de video (clips) se siguen escribiendo; solo no se espera a subirlos
-        o = {**o, "revisar": False}
+        o = {**o, "revisar": False, "leer": False}
     nicho = NICHOS[o["nicho"]]
     prompt = (
         f"Eres el guionista de una saga de videos cortos por entregas (nicho: {nicho['nombre']}, {o['idioma']}, "
@@ -700,7 +792,7 @@ def temporada(desde=None, opciones=None, cuantos=3, idea="", final=False, sin_pa
         oe = _opciones({**o, "tema": f"{nombre} — Episodio {n}: {titulo}", "continua": previo, "episodio": n,
                         "rumbo": f"{titulo}. {_txt(e.get('pasa'), 600)}"})
         if sin_parar:
-            oe["revisar"] = False   # _opciones lo vuelve a encender si hay clips
+            oe["revisar"] = oe["leer"] = False   # _opciones lo vuelve a encender si hay clips
         fid = sid if not desde and k == 0 else uuid.uuid4().hex[:12]   # la saga se llama como su primer video
         os.makedirs(_dir(fid), exist_ok=True)
         almacen.escribir_json(_dir(fid, "sesion.json"), {
@@ -1046,16 +1138,26 @@ def _producir(fid, desde):
     for etapa in etapas[etapas.index(desde):]:
         {"guion": _guion, "voz": _voz, "render": _render_y_montar}[etapa](fid)
         if etapa == "guion" and _leer(fid)["opciones"].get("revisar"):
+            leer = _leer(fid)["opciones"].get("leer")
             _guardar(fid, estado="revision", progreso=12,
-                     mensaje="guion e imagenes listos: sube los clips, tu voz o elige la musica y dale a Montar")
+                     mensaje="guion listo: grabalo leyendolo tal cual y sube tu voz" if leer
+                     else "guion e imagenes listos: sube los clips, tu voz o elige la musica y dale a Montar")
             return
     _guardar(fid, estado="listo", progreso=100, mensaje="video listo")
 
 
 def montar(fid, opciones=None):
     """Sigue un video parado en revision: voz (la elegida o tu grabacion del guion), dibujos y montaje."""
-    if _leer(fid).get("estado") != "revision":
+    s = _leer(fid)
+    if s.get("estado") != "revision":
         raise ValueError("este video no esta esperando: usa Rehacer")
+    opciones = dict(opciones or {})
+    if s["opciones"].get("leer"):
+        voz = str(opciones.get("voz") or "")
+        if not voz:
+            raise ValueError("falta tu grabacion: sube tu voz leyendo el guion (o elige una voz de Microsoft)")
+        if not voz.startswith(NARRADA):
+            opciones["leer"] = False   # al final con voz de Microsoft
     return rehacer(fid, "voz", opciones)
 
 
@@ -1091,6 +1193,52 @@ def _clave_tema(texto):
               "esta", "the", "and", "why", "how", "what", "nunca", "siempre", "tiene", "tienen", "hay", "fue", "son", "es"}
     plano = "".join(c for c in unicodedata.normalize("NFD", str(texto or "").lower()) if unicodedata.category(c) != "Mn")
     return {w for w in re.findall(r"[a-z0-9]+", plano) if len(w) > 2 and w not in vacias}
+
+
+# Reglas de guion para todos los videos (ideas de Sloth, escritas por nosotros): en cadena, remates, concreto, el giro con prueba, el final que
+# vuelve al gancho y la autoevaluacion antes de responder (todo en la MISMA llamada: no gasta llamadas extra).
+REGLAS_GUION = (
+    "Reglas extra de este video:\n"
+    "- EN CADENA: escribe en segunda persona y con algo que el que mira ya vivio; cada frase abre la pregunta que "
+    "cierra la siguiente ('Entonces cavas un escalon... pero en cuanto te asomas, te ven. Entonces...'). Asi se queda.\n"
+    "- UN REMATE cada 8-10 s: las ultimas palabras de una frase giran lo que venia (una comparacion de la vida diaria, "
+    "una exageracion, una ironia) y el remate TAMBIEN ensena ('les pide dinero a tus contactos' informa; 'y tu tia le "
+    "deposita dos mil a tu foto de perfil' hace reir y ensena lo mismo). Con humor si el tema lo permite; en temas "
+    "serios (misterios, tragedias) el remate es un giro de tension, nunca una broma. Una broma que se sale del tema, fuera.\n"
+    "- CONCRETO: una situacion reconocible con su detalle ('tu cuchillo' ensena; 'el cuchillo que heredaste de tu "
+    "abuela, el que tambien abre las latas' se reconoce). Una idea por frase, palabras de todos los dias.\n"
+    "- NOMBRA lo que ensenas: el nombre que alguien repetiria en la mesa ('la capsaicina', no 'una sustancia'); lo "
+    "tecnico, con palabras de todos.\n"
+    "- NO ANUNCIES lo que vas a decir: nada de 'Dato curioso:', 'Lo peor:', 'Ahora viene lo bueno'. Dilo.\n"
+    "- EL GIRO: lo que el que mira creia y por que no es asi, con la prueba (quien lo dice y cuando).\n"
+    "- El final VUELVE AL GANCHO ya resuelto (la misma imagen o cifra del principio, ahora con sentido), deja el mensaje "
+    "en una frase que se recuerde y, si encaja, invita a mandarselo a alguien CONCRETO ('Mandaselo a quien cree que "
+    "una trinchera es solo una zanja').\n"
+    "- El titulo de la portada: la pregunta o la promesa del gancho en 2-6 palabras (se lee en la miniatura del perfil).\n"
+    "- Antes de responder, lee tu guion como alguien que va pasando videos y no sabe nada del tema, y ponle de 1 a 10: "
+    "se detendria en el primer segundo, lo entiende a la primera, se rie o siente tension, se queda hasta el final, se "
+    "lleva algo que no sabia. Lo que no llegue a 9, reescribelo antes de responder (no escribas las notas: solo el guion).\n"
+)
+
+GANCHOS_VISTOS = 10   # de los ultimos videos del nicho, Claude ve tambien como empezaban (es lo que mas se repite)
+
+
+def _ganchos(nicho, salvo=None):
+    """La primera frase de la narracion de los ultimos videos del nicho (sus ganchos)."""
+    salida = []
+    for s in listar():
+        if len(salida) >= GANCHOS_VISTOS:
+            break
+        if s["id"] == salvo or s.get("opciones", {}).get("nicho") != nicho or s.get("estado") == "error":
+            continue
+        try:
+            texto = str((almacen.leer_json(_dir(s["id"], "guion.json")).get("escenas") or [{}])[0].get("texto") or "")
+        except Exception:  # noqa: BLE001
+            continue
+        frase = _txt(re.split(r"(?<=[.?!])\s", texto.strip())[0], 110)
+        if frase:
+            salida.append(frase)
+    return salida
 
 
 def _hechos(nicho, salvo=None, cuantos=25):
@@ -1263,6 +1411,7 @@ def _guion(fid):
             "si te quedas corto, añade escenas con mas datos; no rellenes.\n\n")
     serie = SERIES.get(o.get("serie") or "")
     hechos = _hechos(o["nicho"], fid)
+    ganchos = _ganchos(o["nicho"], fid)
     # fuera de mapas cada escena lleva su propia imagen (si se pueden hacer: Flow en este PC)
     unicos = o["nicho"] != "mapas" and o["nuevos"] and flow_gen.habilitado()
     largo = not grabada and o["duracion"] > LARGO_S
@@ -1274,10 +1423,14 @@ def _guion(fid):
         + (f"{estilo['guia']}\n\n" if estilo.get("guia") else "")
         + (clonar.para_guion(o["receta"]) if o.get("receta") else "")
         + _saga(o)
+        + _personajes_previos(o)
     )
     contexto = (
         (("Videos que YA hicimos en este canal (no repitas su gancho, su enfoque ni sus datos principales; si el tema "
           "se parece, busca otro angulo):\n" + "\n".join(f"- {t}" for t in hechos) + "\n\n") if hechos else "")
+        + (("Asi EMPEZABAN los ultimos videos: tu primera frase no puede parecerse a ninguna (ni en la forma: si "
+            "varios abren con una pregunta, abre con un dato o una escena):\n" + "\n".join(f'- "{g}"' for g in ganchos)
+            + "\n\n") if ganchos else "")
         + f"Escenas disponibles:\n{catalogo_txt}\n\n"
         "Indicador fijo (opcional, solo si el video gira alrededor de UNA cifra que cambia: km de costa perdidos, deuda, "
         "poblacion, anos que pasan...): en la raiz \"indicador\": {\"nombre\": \"Costa de Bolivia\", \"antes\"?: \"$\", "
@@ -1325,13 +1478,21 @@ def _guion(fid):
         "sorpresa, dinero, peligro, risa), {\"tipo\": \"sello\", \"texto\": \"FALSO\", \"palabra\"} (2-3 palabras que caen "
         "como un sello: FALSO, RECORD, PROHIBIDO, CONFIRMADO), {\"tipo\": \"flecha\", \"texto\"?: \"mira esto\", \"palabra\"} "
         "(senala lo que hay en el centro)}]. Refuerzan un momento fuerte; no los pongas por poner.\n"
-        "- Datos reales y comprobados; nada inventado. Frases cortas y naturales para leer en voz alta. "
+        + ("- Es ficcion: inventa personajes y hechos, pero que sean creibles. Frases cortas" if o["nicho"] == "novelas" else
+           "- Datos reales y comprobados; nada inventado. Frases cortas") + " y naturales para leer en voz alta. "
         "El final responde al gancho y deja el mensaje en una frase que se recuerde (sin pedir likes ni suscripciones).\n"
         + ("- CLIPS DE VIDEO: cada escena 'ilustracion' lleva ademas \"video_prompt\": prompt EN INGLES para un modelo de "
            "video (Seedance, Veo) de ese mismo momento: sujeto y accion, movimiento de camara (push in, orbit, handheld, "
-           "tracking...), luz y ambiente, 5-8 s, sin texto ni subtitulos en la imagen. La imagen ('nueva') es el primer "
+           "tracking...), luz y ambiente, 5-8 s, sin texto ni subtitulos en la imagen; nadie habla a camara (no dialogue). La imagen ('nueva') es el primer "
            "fotograma de ese clip.\n" if o.get("clips") else "")
+        + ("- VIDEO REAL (B-roll de stock): en las escenas 'ilustracion' donde un video filmado de verdad lo cuente mejor "
+           "que un dibujo (un lugar, una ciudad, naturaleza, gente haciendo algo, un objeto en uso), pon \"stock\": 2-4 "
+           "palabras EN INGLES para buscarlo en Pexels (algo que se pueda filmar: nada abstracto, sin nombres propios ni "
+           "marcas). Como mucho en la mitad de las ilustraciones; pon igualmente \"nueva\" por si no se encuentra."
+           + (" Es una historia con personajes: stock SOLO para lugares y ambiente, nunca para los personajes."
+              if (ESTILOS.get(o.get("estilo")) or {}).get("video") else "") + "\n" if o.get("stock") else "")
     )
+    reglas += REGLAS_GUION
     mensaje_txt = ("Antes de escribir, decide el 'mensaje': UNA sola idea que el que lo vea se lleve, en una frase. Todo "
                    "el video sirve a esa idea; un dato que no la empuja, fuera (aunque sea curioso). Nada de 3 temas en un video.\n\n")
     if largo:
@@ -1347,11 +1508,16 @@ def _guion(fid):
         crudo = _objeto_json(claude_cli.ejecutar(prompt, modelo="sonnet", esfuerzo="low", tiempo_max_s=300))
         if not grabada:
             crudo = _ajustar_largo(fid, crudo, palabras, o["duracion"])
+    personajes = _personajes(fid, crudo, o) if estilo.get("video") else []
+    if o.get("stock"):
+        _buscar_stock(fid, crudo, o)
     if o["nuevos"] and flow_gen.habilitado():
         if o["nicho"] != "mapas":
             _unicos(fid, crudo)
         _dibujos_nuevos(fid, crudo)
     guion = _validar(crudo, o["nicho"], permitidas, o.get("banco"))
+    if personajes:
+        guion["personajes"] = personajes
     if estilo.get("guia") and _txt(crudo.get("cabecera")):
         guion["cabecera"] = _txt(crudo["cabecera"], 40)
     if grabada:
@@ -1359,6 +1525,8 @@ def _guion(fid):
     almacen.escribir_json(_dir(fid, "guion.json"), guion)
     _guardar(fid, titulo=guion["titulo"] or o["tema"][:120] or "Video", progreso=26 if grabada else 12,
              mensaje=f"guion listo: {len(guion['escenas'])} escenas")
+    if _veo_auto(o):
+        _clips_veo(fid, guion)
 
 
 LARGO_TOLERANCIA = 0.10   # fuera de +-10 % de las palabras pedidas se pide a Claude que corrija (una vez)
@@ -1447,7 +1615,7 @@ def _dibujos_nuevos(fid, guion):
     for e in guion.get("escenas") or []:
         if not isinstance(e, dict):
             continue
-        if e.get("tipo") == "ilustracion" and _txt(e.get("nueva")) and not _txt(e.get("clip")):
+        if e.get("tipo") == "ilustracion" and _txt(e.get("nueva")) and not _txt(e.get("clip")) and not _stock_de(e):
             pedidos.append(("ilustraciones", e, "imagen", "personaje"))
         for p in (e.get("pegatinas") or []) if e.get("tipo") == "mapa" else []:
             if isinstance(p, dict) and _txt(p.get("nueva")):
@@ -1475,7 +1643,9 @@ def _dibujos_nuevos(fid, guion):
             _guardar(fid, progreso=5 + n * 2, mensaje=f"Nano Banana dibuja {'una ilustracion' if tipo == 'ilustraciones' else 'una pegatina'} "
                                                    f"nueva ({n + 1} de {total}): {que[:60]}")
             try:
-                hechos[(tipo, que)] = biblioteca.crear(tipo, que, nombre=que[:32], clase=clase, familia=familia)["id"]
+                fichas, detalle = _fichas_de(fid, donde) if tipo == "ilustraciones" else ([], "")
+                hechos[(tipo, que)] = biblioteca.crear(tipo, que, nombre=que[:32], clase=clase, familia=familia,
+                                                       referencias_extra=fichas, detalle=detalle)["id"]
             except Exception as e:  # noqa: BLE001 -- sin el dibujo nuevo vale el de la biblioteca
                 logger.warning(f"fabrica {fid}: no se pudo crear '{que}': {e}")
                 hechos[(tipo, que)] = None
@@ -1511,7 +1681,7 @@ def _unicos(fid, guion):
             e["tipo"] = "ilustracion"
             e["nueva"] = f"{quien}, {_txt(e.get('texto'), 200)}" if quien else _txt(e.get("texto"), 240)
             e.pop("imagen", None)
-        if e.get("tipo") != "ilustracion" or _txt(e.get("clip")):   # con clip del banco no hace falta imagen
+        if e.get("tipo") != "ilustracion" or _txt(e.get("clip")) or _stock_de(e):   # con clip no hace falta imagen
             continue
         imagen = _txt(e.get("imagen"), 40).lower()
         if not _txt(e.get("nueva")) and (not imagen or imagen in vistas or imagen in recientes):
@@ -1622,10 +1792,12 @@ def _validar(guion, nicho, permitidas=None, bancos=None):
                 x["clip"] = _txt(e["clip"], 12).replace(" ", "")   # clip del banco ("k-n") detras de los textos
             if _txt(e.get("video_prompt")):
                 x["video_prompt"] = _txt(e["video_prompt"], 800)   # para hacer el clip aparte y subirlo
+            if _stock_de(e):
+                x["stock"] = _stock_de(e)   # video de Pexels/Pixabay ya bajado: va detras de los textos
             g, r = e.get("golpe"), e.get("rotulo")
             x["golpe"] = {"texto": _txt(g.get("texto"), 30), "palabra": _txt(g.get("palabra"), 40)} if isinstance(g, dict) and _txt(g.get("texto")) else None
             x["rotulo"] = {"texto": _txt(r.get("texto"), 24), "palabra": _txt(r.get("palabra"), 40)} if isinstance(r, dict) and _txt(r.get("texto")) else None
-            if not x["imagen"] and not x.get("clip"):
+            if not x["imagen"] and not x.get("clip") and not x.get("stock"):
                 e = {**e, "tipo": "_sin_imagen"}
         elif x["tipo"] == "mapa":
             x["paises"] = [{"iso": iso(p.get("iso")), "color": color(p.get("color")), "palabra": _txt(p.get("palabra"), 40),
@@ -1730,6 +1902,21 @@ def _validar(guion, nicho, permitidas=None, bancos=None):
                 x["mensajes"] = [{"texto": x["contenido"], "mio": False, "palabra": x["palabra"]}]
             if not (x["mensajes"] if x["forma"] in ("chat", "notificacion") else x["contenido"]):
                 e = {**e, "tipo": "_sin_contenido"}
+        elif x["tipo"] == "mundo":
+            x["plano"] = "general" if e.get("plano") == "general" else ""
+            x["cosas"] = []
+            for c in (e.get("cosas") or [])[:3]:
+                if not isinstance(c, dict):
+                    continue
+                modelo = c.get("modelo") if c.get("modelo") in MODELOS_3D else None
+                nombre = None if modelo else _icono_3d(c.get("icono"))
+                ident = _norm(_txt(c.get("id") or c.get("icono") or modelo, 30)).replace(" ", "-")
+                if ident and (modelo or nombre):
+                    x["cosas"].append({"id": ident, "palabra": _txt(c.get("palabra"), 40),
+                                       **({"modelo": modelo} if modelo else {"icono": nombre}),
+                                       **({"color": color(c["color"])} if c.get("color") else {})})
+            if not x["cosas"]:
+                e = {**e, "tipo": "_sin_cosas"}
         elif x["tipo"] == "linea_tiempo":
             x["titulo"] = _txt(e.get("titulo"), 80)
             x["hitos"] = [{"fecha": _txt(h["fecha"], 16), "texto": _txt(h.get("texto"), 60), "palabra": _txt(h.get("palabra") or h["fecha"], 40),
@@ -1819,6 +2006,8 @@ def _voz(fid):
     audio = os.path.join(carpeta, "voz.mp3")
     if o["voz"].startswith(NARRADA):
         return _voz_narrada(fid, o, texto, audio)
+    if voz_gemini.es_gemini(o["voz"]):
+        return _voz_gemini(fid, o, texto, audio)
     _guardar(fid, estado="voz", progreso=15, mensaje=f"sintetizando la voz ({o['voz']})")
     nombre = voice.parse_voice_name(o["voz"])
     if componentes.es_voz_microsoft(nombre):
@@ -1881,6 +2070,20 @@ def _voz_grabada(fid, o):
     _guardar(fid, progreso=22, mensaje=f"grabacion lista: {duracion:.1f} s, {len(oidas)} palabras")
 
 
+def _voz_gemini(fid, o, texto, audio):
+    """Voz de Gemini (AI Studio): no trae el tiempo de cada palabra, asi que Whisper lo saca del audio."""
+    _guardar(fid, estado="voz", progreso=14, mensaje=f"Gemini narra con la voz {voz_gemini.nombre(o['voz'])}")
+    voz_gemini.sintetizar(texto, o["voz"], audio, o["velocidad"],
+                          avisar=lambda n, total: _guardar(fid, mensaje=f"Gemini narra: parte {n + 1} de {total}"))
+    duracion = float(medios.sondear(audio).get("duracion") or 0)
+    oidas = _escuchar(fid, audio, duracion, 16, 22, o["idioma"])
+    alineadas = etapa_voz.alinear(texto, [list(w) for w in oidas])
+    if not alineadas:
+        raise RuntimeError("la voz de Gemini no dijo el guion tal cual (prueba otra voz o vuelve a intentarlo)")
+    almacen.escribir_json(os.path.join(_dir(fid, "voz"), "palabras.json"), {"duracion": round(duracion, 3), "palabras": alineadas[0]})
+    _guardar(fid, progreso=22, mensaje=f"voz de Gemini lista: {duracion:.1f} s")
+
+
 def _voz_narrada(fid, o, texto, audio):
     """Tu grabacion leyendo el guion: Whisper oye cada palabra y el texto del guion toma esos tiempos."""
     _guardar(fid, estado="voz", progreso=14, mensaje="preparando tu grabacion")
@@ -1934,6 +2137,104 @@ VARIANTES = {"cifra": 3, "lista": 3, "versus": 3, "ilustracion": 4, "barras": 2}
 TRANSICIONES = ("zoom", "barrido", "destello", "giro")   # entrada de cada escena tras el corte (nucleo.js, ritmo)
 
 
+# ------------------------------------------------------------------ mundo 3D (escenas "mundo")
+
+DIR_PHOSPHOR = os.path.join(graficos.DIR_MOTION, "node_modules", "@phosphor-icons", "core", "assets", "fill")
+MODELOS_3D = ("caja",)
+ALIAS_3D = {"phone": "device-mobile", "mobile": "device-mobile", "smartphone": "device-mobile", "cellphone": "device-mobile",
+            "laptop": "laptop", "computer": "desktop", "money": "money", "dollar": "currency-dollar", "euro": "currency-eur",
+            "person": "user", "people": "users-three", "woman": "user", "man": "user", "box": "package", "home": "house",
+            "earth": "globe-hemisphere-west", "world": "globe-hemisphere-west", "globe": "globe-hemisphere-west",
+            "car": "car", "plane": "airplane", "ship": "boat", "chart": "chart-line-up", "graph": "chart-line-up",
+            "danger": "warning", "alert": "warning", "time": "clock", "water": "drop", "idea": "lightbulb"}
+COLORES_MUNDO = ("azul", "naranja", "verde", "morado", "rojo", "amarillo")
+
+
+def _icono_3d(nombre):
+    """Un nombre de Phosphor que existe (con alias y sin el sufijo de estilo), o None."""
+    n = re.sub(r"[\s_]+", "-", str(nombre or "").strip().lower())
+    n = re.sub(r"-(fill|bold|regular|thin|light|duotone)$", "", n)
+    for prueba in (n, ALIAS_3D.get(n, ""), n.rstrip("s")):
+        if prueba and os.path.isfile(os.path.join(DIR_PHOSPHOR, f"{prueba}-fill.svg")):
+            return prueba
+    return None
+
+
+def _svg_3d(nombre):
+    with open(os.path.join(DIR_PHOSPHOR, f"{nombre}-fill.svg"), encoding="utf-8") as f:
+        return f.read()
+
+
+def _mundo_escena(mundo, e, en, dur, previa, final):
+    """Datos de una escena mundo: el escenario entero hasta ahora (lo de antes en gris, lo nuevo entrando al nombrarlo)
+    y las tomas de la camara. mundo (id -> cosa) se va llenando escena tras escena. Devuelve (datos, ultima toma)."""
+    nombradas = []
+    for k, c in enumerate(e["cosas"]):
+        a = min(en(c["palabra"], 0.3 + k * 0.9), round(max(0.0, dur - 0.6), 3))
+        nueva = c["id"] not in mundo
+        if nueva:
+            n = len(mundo)
+            usados = {x["color"] for x in mundo.values()}
+            libre = next((x for x in COLORES_MUNDO if x not in usados), COLORES_MUNDO[n % 6])
+            pedido = c.get("color") if c.get("color") not in (None, "acento", "gris") else None
+            mundo[c["id"]] = {"id": c["id"], **({"modelo": c["modelo"]} if c.get("modelo") else {"icono": c["icono"]}),
+                              # cada cosa con su color (dos cosas iguales de color se confunden); la caja, de carton
+                              "color": "#d39a5e" if c.get("modelo") == "caja" else pedido if pedido and pedido not in usados else libre,
+                              # en diagonal hacia el fondo a la derecha (con un leve vaiven): las tomas de cada cosa la
+                              # miran de costado (nada tapa nada) y la general mira a lo largo de la fila, desde arriba,
+                              # y las cosas quedan una encima de otra: lo que cabe en vertical
+                              "x": round(n * 1.55 + (0.35 if n % 2 else 0.0), 2), "z": round(-n * 1.55 + (0.35 if n % 2 else 0.0), 2),
+                              "tam": 1.15 if c.get("modelo") else 1.25}
+        nombradas.append((a, c["id"], nueva))
+    if nombradas and all(nueva for _, _, nueva in nombradas) and len(mundo) == len(nombradas):
+        # el escenario esta vacio: lo primero ya se ve en el primer fotograma (nada de empezar en negro)
+        primera_a = min(a for a, _, _ in nombradas)
+        nombradas = [(0.0 if a == primera_a else a, i, n) for a, i, n in nombradas]
+    cosas = []
+    for ident, c in mundo.items():
+        propia = next(((a, nueva) for a, i, nueva in nombradas if i == ident), None)
+        if propia is None:
+            cosas.append({**c, "a": -1, "gris": 0.0, "golpes": []})          # ya dicho: se apaga
+        else:
+            a, nueva = propia
+            cosas.append({**c, "a": a if nueva else -1, "gris": None, "golpes": [] if nueva else [a]})
+    # tomas: se empieza donde acabo la escena anterior (si era mundo) y se va a cada cosa al nombrarla. Las de cada
+    # cosa la miran de costado a la fila (az 25-60); la general, a lo largo de la fila (az -45) y desde arriba.
+    angulos = ((42, 14), (28, 20), (56, 12), (36, 26))
+    orden = sorted(nombradas)
+    primera = orden[0][1] if orden else next(iter(mundo))
+    tomas = [{**previa, "t": 0.0}] if previa else [{"t": 0.0, "cosas": [primera], "az": 40, "el": 18, "lejos": 1.35,
+                                                    "fov": 32, "deriva": 2.0}]
+    for k, (a, ident, nueva) in enumerate(orden):
+        ultima = tomas[-1]
+        t = round(max(0.15 if previa else 0.0, a - 0.1), 3)
+        if ultima["cosas"] == [ident] or (not nueva and t - ultima["t"] < 1.2):
+            continue   # ya se ve, o se vuelve a nombrar enseguida: la camara no se mueve por eso
+        if len(tomas) == 1 and not previa and t < 0.4:
+            tomas.pop()          # se nombra al empezar: esa es la primera toma
+            t = 0.0
+        elif len(tomas) > 1 and t - ultima["t"] < 0.9 and nueva:
+            ultima["cosas"] = ultima["cosas"] + [ident]   # dos cosas casi a la vez: una toma con las dos
+            ultima["lejos"] = 1.15
+            continue
+        az, el = angulos[(len(mundo) + k) % len(angulos)]
+        tomas.append({"t": t, "cosas": [ident], "az": az, "el": el, "lejos": 1.35, "fov": 32,
+                      "deriva": -2.0 if az > 40 else 2.0})
+    if e.get("plano") == "general" or final:
+        # todo lo armado (con muchas cosas, las ultimas 5: si no, se ven diminutas)
+        general = {"cosas": list(mundo)[-5:], "az": -45, "el": 40, "lejos": 0.95, "fov": 34, "deriva": 1.5}
+        nuevas_t = [a for a, _, nueva in orden if nueva]
+        t = round(max(nuevas_t[-1] + 1.2, dur * 0.4) if nuevas_t else max(0.15, dur * 0.25), 3)
+        if not nuevas_t:
+            tomas = tomas[:1]   # sin nada nuevo la escena es para ver todo: no se va a lo que solo se renombra
+        if t <= dur - 0.7:
+            tomas.append({"t": t, **general})
+        else:
+            tomas[-1] = {**tomas[-1], **general}   # no da tiempo a otra toma: la ultima ya es la general
+    iconos = {c["icono"]: _svg_3d(c["icono"]) for c in mundo.values() if c.get("icono")}
+    return {"cosas": cosas, "tomas": tomas, "iconos": iconos}, tomas[-1]
+
+
 def plan(fid):
     """Escenas con su inicio y duracion (en fotogramas exactos) y sus datos en segundos de la escena."""
     o = _leer(fid)["opciones"]
@@ -1972,6 +2273,13 @@ def plan(fid):
                 presentador = {"aspecto": presentadores.aspecto(pid), "imagen": nombre_pres, "ruta": ruta_pres}
     boca = _niveles_boca(_dir(fid, "voz", "voz.mp3"), fin) if presentador else ""
     puntos = o.get("estilo") == "explicador" or o.get("serie") == "explicador"   # cortinilla de tinta en los cambios grandes
+    mundo, ultima_toma, ultimo_mundo = {}, None, None   # el escenario 3D: id -> cosa (con su sitio), y la camara
+    for i_, e_ in enumerate(guion["escenas"]):
+        if e_["tipo"] == "mundo":
+            ultimo_mundo = i_
+    diorama = o.get("estilo") == "diorama3d"
+    # diorama: las escenas de datos llevan detras el ultimo diorama (desenfocado); antes del primero, el primero
+    ilus_previa = next((x.get("imagen") for x in guion["escenas"] if x["tipo"] == "ilustracion" and x.get("imagen")), None)
     for i, (e, trozo) in enumerate(zip(guion["escenas"], trozos)):
         a = inicios[i]
         archivos = {}                             # {nombre en la pagina: ruta} (banderas, dibujos)
@@ -1985,6 +2293,12 @@ def plan(fid):
         d = {"subtitulos": rel if o["subtitulos"] else []}
         if o.get("estilo") == "retrotv":   # cabecera con el tema y el contador de escenas
             d["cabecera"] = {"texto": guion.get("cabecera") or guion.get("titulo") or "", "n": i + 1, "total": len(guion["escenas"])}
+        if diorama and e["tipo"] == "portada" and not e.get("imagen") and ilus_previa:
+            e = {**e, "imagen": ilus_previa, "protagonista": None}   # la portada tambien es un diorama
+        if diorama and e["tipo"] == "ilustracion" and e.get("imagen"):
+            ilus_previa = e["imagen"]
+        if diorama and e["tipo"] in ("cifra", "lista", "versus", "barras", "linea_tiempo", "captura") and ilus_previa:
+            d["fondo_desenfocado"] = _archivo(archivos, "ilustraciones", ilus_previa, familia)
         if e["tipo"] == "portada":
             # en una serie, su nombre va siempre encima del titulo (asi se reconoce de un video a otro)
             serie = SERIES.get(o.get("serie") or "")
@@ -2113,6 +2427,8 @@ def plan(fid):
         elif e["tipo"] == "ilustracion":
             if e.get("clip"):
                 _clip_banco(fid, i, e["clip"], dur, o)
+            if e.get("stock"):
+                _clip_stock(fid, i, e["stock"])
             if e.get("imagen"):
                 d["src"] = _archivo(archivos, "ilustraciones", e["imagen"], familia)
             if _ruta_clip(fid, i):
@@ -2123,6 +2439,13 @@ def plan(fid):
             sonidos.append((a, "whoosh"))
             if d["golpe"]:
                 sonidos.append((a + d["golpe"]["a"], "golpe"))
+        elif e["tipo"] == "mundo":
+            d["mundo"], ultima_toma = _mundo_escena(mundo, e, en, dur, ultima_toma if i and salida[-1]["tipo"] == "mundo" else None,
+                                                    final=i == ultimo_mundo)
+            d["continua"] = bool(i and salida[-1]["tipo"] == "mundo")   # la camara sigue: sin transicion
+            previa, pintados = None, set()
+            sonidos += [(a + c["a"], "pop") for c in d["mundo"]["cosas"] if c["a"] >= 0]
+            sonidos += [(a + t_["t"], "whoosh") for t_ in d["mundo"]["tomas"] if t_["t"] > 0.2]
         elif e["tipo"] == "cifra":
             d.update(numero=e["numero"], antes=e["antes"], despues=e["despues"], etiqueta=e["etiqueta"],
                      contexto=e["contexto"], a=en(e["palabra"], 0.3))
@@ -2155,6 +2478,8 @@ def plan(fid):
             n = vistos.get(e["tipo"], 0)
             vistos[e["tipo"]] = n + 1
             d["variante"] = e["variante"] if isinstance(e.get("variante"), int) else (semilla + n) % VARIANTES[e["tipo"]]
+            if diorama and e["tipo"] == "ilustracion":
+                d["variante"] %= 3   # sin la foto enmarcada: el diorama luce a pantalla completa
         if e["tipo"] == "captura":
             previa, pintados = None, set()
             d.update(forma=e["forma"], nombre=e["nombre"], usuario=e["usuario"], contenido=e["contenido"], cifra=e["cifra"],
@@ -2179,7 +2504,7 @@ def plan(fid):
             # cierre de marca: el nombre del canal en los ultimos segundos del video
             d["marca"] = {"texto": o["marca"], "a": round(max(0.3, dur - MARCA_S - 0.4), 3)}
             sonidos.append((a + d["marca"]["a"], "whoosh"))
-        if i and not d.get("previa") and not d.get("clip"):
+        if i and not d.get("previa") and not d.get("clip") and not d.get("continua"):
             # entrada desde el corte (rotando, nunca dos iguales seguidas); el mapa que sigue al anterior no lleva:
             # su camara continua y un salto lo romperia. En el explicador, cortinilla de puntos tras la portada y
             # antes de la ultima escena (y solo zoom o barrido en el resto: nada de brillos)
@@ -2309,7 +2634,9 @@ def renderizar_escena(escena, estilo, formato, destino_dir, motor=None):
             with open(os.path.join(DIR_FABRICA, "base.html"), encoding="utf-8") as f:
                 html = (f.read().replace("__ANCHO__", str(w)).replace("__ALTO__", str(h))
                         .replace("__DURACION__", f"{escena['duracion']:g}").replace("__ESTILO__", estilo)
-                        .replace("__SCRIPTS__", "\n".join(f'  <script src="{s}"></script>' for s in scripts)))
+                        .replace("__SCRIPTS__", "\n".join(f'  <script src="{s}"></script>' for s in scripts))
+                        .replace("__CABEZA__", '  <script type="importmap">{"imports": {"three": "./three.module.min.js", '
+                                 '"three/addons/": "./"}}</script>' if ESCENAS[tipo].get("modulos") else ""))
             with open(os.path.join(tmp, "index.html"), "w", encoding="utf-8") as f:
                 f.write(html)
             with open(os.path.join(tmp, "datos.js"), "w", encoding="utf-8") as f:
@@ -2321,6 +2648,12 @@ def renderizar_escena(escena, estilo, formato, destino_dir, motor=None):
                       "escena.js": os.path.join(DIR_FABRICA, "escenas", f"{tipo}.js")}
             for s in scripts:
                 copiar[s] = os.path.join(DIR_FABRICA, "datos" if s in ("paises.js", "rios.js") else "", s)
+            if ESCENAS[tipo].get("modulos"):
+                tres = os.path.join(graficos.DIR_MOTION, "node_modules", "three")
+                copiar.update({"mundo3d.js": os.path.join(DIR_FABRICA, "mundo3d.js"),
+                               "three.module.min.js": os.path.join(tres, "build", "three.module.min.js"),
+                               "three.core.min.js": os.path.join(tres, "build", "three.core.min.js"),
+                               "SVGLoader.js": os.path.join(tres, "examples", "jsm", "loaders", "SVGLoader.js")})
             copiar.update(escena.get("archivos") or {})
             if textura:
                 copiar["textura.webp"] = textura
@@ -2445,6 +2778,8 @@ def _render_y_montar(fid):
     guion = almacen.leer_json(_dir(fid, "guion.json"))
     if o.get("nuevos", True):
         _versiones(fid, guion)   # con otro aspecto (stickman, grabado...), los dibujos que le falten
+    if _veo_auto(o):
+        _clips_veo(fid, guion)   # los clips que faltaron (sin creditos): se reintentan al volver a montar
     escenas, total = plan(fid)
     motor = _huella_motor()
     pasos = len(escenas) * len(o["formatos"])
@@ -2534,8 +2869,8 @@ def _partes(fid, escenas, formato, estilo, motor, avisar=lambda n, mensaje: None
         avisar(n, f"escena {e['i'] + 1} de {len(escenas)} ({e['tipo']})")
         parte = renderizar_escena(e, estilo, formato, _dir(fid, "escenas"), motor)
         if e["datos"].get("clip") and _ruta_clip(fid, e["i"]):
-            avisar(n, f"escena {e['i'] + 1}: poniendo tu clip de video detras")
-            parte = _con_clip(fid, e, parte, w, h)
+            avisar(n, f"escena {e['i'] + 1}: poniendo el clip de video detras")
+            parte = _con_clip(fid, e, parte, w, h, sin_repetir=bool((ESTILOS.get(o.get("estilo")) or {}).get("video")))
         partes.append(parte)
     return partes
 
@@ -2600,18 +2935,28 @@ def borrar_clip(fid, i):
     return {"clips": clips(fid)}
 
 
-def _con_clip(fid, escena, parte, w, h, clip=None):
+ESTIRAR_MAX = 1.25   # un clip de Veo mas corto que su escena se ralentiza hasta esto; el resto, ultimo cuadro quieto
+
+
+def _con_clip(fid, escena, parte, w, h, clip=None, sin_repetir=False):
     """La escena (dibujada sobre verde croma) encima de su clip subido: el clip llena el
-    cuadro, se repite si es corto y se corta a la duracion de la escena."""
+    cuadro, se repite si es corto y se corta a la duracion de la escena. sin_repetir (novela): en vez de repetirse
+    se ralentiza un poco y se queda en su ultimo cuadro (un clip de una historia repetido se nota)."""
     clip = clip or _ruta_clip(fid, escena["i"])
     dur = escena["duracion"]
-    salida = parte[:-4] + f"_clip{hashlib.sha1(clip.encode()).hexdigest()[:6]}{int(os.path.getmtime(clip))}.mp4"
+    salida = parte[:-4] + f"_clip{hashlib.sha1(clip.encode()).hexdigest()[:6]}{int(os.path.getmtime(clip))}{'s' if sin_repetir else ''}.mp4"
     if os.path.isfile(salida):
         return salida
-    filtro = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={FPS},"
+    estirar = ""
+    if sin_repetir:
+        largo = medios.sondear(clip)["duracion"] or dur
+        f = min(ESTIRAR_MAX, max(1.0, dur / largo))
+        estirar = f"setpts={f:.4f}*(PTS-STARTPTS),tpad=stop_mode=clone:stop_duration={dur + 1:.2f},"
+    filtro = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,{estirar}fps={FPS},"
               f"trim=duration={dur},setpts=PTS-STARTPTS[fondo];[1:v]chromakey=0x00FF00:0.16:0.06[encima];"
               "[fondo][encima]overlay=shortest=1,format=yuv420p[v]")
-    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1", "-i", clip,
+    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
+                       *([] if sin_repetir else ["-stream_loop", "-1"]), "-i", clip,
                        "-i", parte, "-filter_complex", filtro, "-map", "[v]", "-t", str(dur), "-an", "-c:v", "libx264",
                        "-preset", "veryfast", "-crf", "18", salida], timeout=900)
     if r.returncode != 0 or not os.path.isfile(salida):
@@ -2689,3 +3034,224 @@ def _montar(fid, formato, partes, total, w, h, o):
     return {"formato": formato, "archivo": os.path.basename(destino), "duracion": total, "ancho": w, "alto": h,
             "tam_mb": round(os.path.getsize(destino) / 1e6, 1), "creado": time.time(),
             "escenas": [os.path.basename(p) for p in partes]}   # los clips con que se monto (para abrir en el editor)
+
+
+# ------------------------------------------------------------------ novela: personajes con ficha y clips de Veo
+
+PERSONAJES_MAX = 4
+
+
+def _personajes_de(guion):
+    return [p for p in (guion or {}).get("personajes") or [] if isinstance(p, dict) and p.get("id")]
+
+
+def _personajes_previos(o):
+    """En una saga de novela, los personajes que ya salieron (mismos ids y aspecto: sus fichas se reutilizan)."""
+    if not (ESTILOS.get(o.get("estilo")) or {}).get("video") or not o.get("continua"):
+        return ""
+    previos = _personajes_de(almacen.leer_json(_dir(o["continua"], "guion.json")))
+    if not previos:
+        return ""
+    return ("PERSONAJES que ya salieron (si vuelven, usa EXACTAMENTE el mismo id, nombre y aspecto; puedes sumar "
+            "alguno nuevo): " + json.dumps(previos, ensure_ascii=False) + "\n\n")
+
+
+def _ruta_ficha(fid, pid):
+    return _dir(fid, "personajes", f"{pid}.webp")
+
+
+def _personajes(fid, crudo, o):
+    """Los personajes del guion con su ficha (retrato de referencia hecho con Nano Banana). Los de episodios
+    anteriores de la saga reutilizan la suya. Devuelve [{id, nombre, aspecto, ficha: bool}]."""
+    previos = {p["id"]: p for p in _personajes_de(almacen.leer_json(_dir(o["continua"], "guion.json")))} \
+        if o.get("continua") else {}
+    salida = []
+    for p in (crudo.get("personajes") or [])[:PERSONAJES_MAX]:
+        if not isinstance(p, dict):
+            continue
+        pid = biblioteca.clave_de(p.get("id") or p.get("nombre"))[:30]
+        if not pid or any(x["id"] == pid for x in salida):
+            continue
+        x = {"id": pid, "nombre": _txt(p.get("nombre"), 40) or pid, "aspecto": _txt(p.get("aspecto"), 300)}
+        if pid in previos and previos[pid].get("aspecto"):
+            x["aspecto"] = previos[pid]["aspecto"]   # el mismo aspecto que en el episodio anterior
+        destino = _ruta_ficha(fid, pid)
+        anterior = _ruta_ficha(o["continua"], pid) if pid in previos else None
+        if not os.path.isfile(destino) and anterior and os.path.isfile(anterior):
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            shutil.copyfile(anterior, destino)
+        if not os.path.isfile(destino) and x["aspecto"] and flow_gen.habilitado():
+            _guardar(fid, mensaje=f"Nano Banana hace la ficha de {x['nombre']}")
+            try:
+                os.makedirs(os.path.dirname(destino), exist_ok=True)
+                biblioteca.ficha(f"{x['nombre']}, {x['aspecto']}", destino)
+            except Exception as e:  # noqa: BLE001 -- sin ficha el personaje se describe solo con palabras
+                logger.warning(f"fabrica {fid}: ficha de {pid}: {e}")
+        x["ficha"] = os.path.isfile(destino)
+        salida.append(x)
+    crudo["personajes"] = salida
+    _crudo_actual[fid] = crudo
+    return salida
+
+
+def _fichas_de(fid, escena):
+    """(rutas de las fichas, texto de quien es quien) de los personajes que salen en una escena."""
+    todos = {p["id"]: p for p in _personajes_de(almacen.leer_json(_dir(fid, "guion.json")) or {})}
+    todos.update({p["id"]: p for p in _personajes_de(_crudo_actual.get(fid))})
+    rutas, quien = [], []
+    for pid in (escena.get("personajes") or [])[:3] if isinstance(escena.get("personajes"), list) else []:
+        p = todos.get(biblioteca.clave_de(pid)[:30])
+        if not p:
+            continue
+        ruta = _ruta_ficha(fid, p["id"])
+        if os.path.isfile(ruta):
+            rutas.append(ruta)
+            quien.append(f"{p['nombre']} is the person in reference image {len(rutas)} ({p['aspecto']})")
+        else:
+            quien.append(f"{p['nombre']}: {p['aspecto']}")
+    detalle = ("Keep each character exactly as in the reference images (same face, hair and clothes): " + "; ".join(quien)
+               if quien else "")
+    return rutas, detalle
+
+
+_crudo_actual = {}   # fid -> guion de Claude mientras se dibuja (los personajes aun no estan en guion.json)
+
+CLIP_ASPECTO = {"9:16": "9:16", "16:9": "16:9"}
+
+
+def _veo_auto(o):
+    """Los clips de las ilustraciones los hace Veo solo: estilo Novela u opcion "clips", en el PC con Flow."""
+    return bool((ESTILOS.get(o.get("estilo")) or {}).get("video") or o.get("clips")) and flow_gen.habilitado()
+
+
+def _clips_veo(fid, guion):
+    """Un clip de Veo (Flow) por escena de ilustracion: su imagen es el primer cuadro y su video_prompt lo que pasa.
+    Se guardan como clips subidos (clips/escena_NNN.mp4). Un clip ya hecho para la misma imagen y prompt no se
+    repite; si se acaban los creditos en todas las cuentas, las escenas que falten se quedan con su imagen."""
+    o = _leer(fid)["opciones"]
+    familia = _familia(o)
+    marcas = almacen.leer_json(_dir(fid, "clips", "veo.json"), {}) or {}
+    pedidos = []
+    for i, e in enumerate(guion["escenas"]):
+        if e.get("tipo") != "ilustracion" or not e.get("imagen") or not e.get("video_prompt"):
+            continue
+        huella = hashlib.sha1(f"{e['imagen']}|{e['video_prompt']}".encode()).hexdigest()[:12]
+        if marcas.get(str(i)) == huella and _ruta_clip(fid, i):
+            continue
+        if str(i) in marcas and _ruta_clip(fid, i):   # el de otro guion: fuera
+            os.remove(_ruta_clip(fid, i))
+        imagen = biblioteca.ruta("ilustraciones", e["imagen"], familia)
+        if imagen:
+            pedidos.append((i, huella, imagen, e["video_prompt"]))
+    if not pedidos:
+        return
+    tmp = _dir(fid, "clips", "veo", crear=True)
+    clips_json = []
+    for i, _, imagen, prompt in pedidos:
+        inicio = os.path.join(tmp, f"inicio_{i:03d}.jpg")
+        with medios.Image.open(imagen) as img:
+            img.convert("RGB").save(inicio, "JPEG", quality=92)
+        clips_json.append({"n": i, "prompt": f"{prompt} No dialogue, no speech, no text on screen.", "inicio": inicio})
+    total, hechos = len(pedidos), [0]
+
+    def avisar(ev):
+        if "clip" in ev and ev.get("estado") == "generando":
+            _guardar(fid, mensaje=f"Veo hace el clip {hechos[0] + 1} de {total} (escena {ev['clip'] + 1}, unos 2-4 min)",
+                     progreso=12 + int(12 * hechos[0] / total))
+        elif "clip" in ev and ev.get("estado") == "ok":
+            hechos[0] += 1
+        elif "clip" in ev and ev.get("estado") == "espera":
+            _guardar(fid, mensaje=f"Google pide ir mas despacio: esperando {ev['segundos']} s antes del clip {hechos[0] + 1}")
+        elif "clip" in ev and ev.get("estado") in ("intento", "error"):
+            logger.warning(f"fabrica {fid}: Veo escena {ev['clip']}: {ev.get('motivo') or 'sin mas intentos'}")
+        elif ev.get("evento") == "cuenta" and ev.get("estado") == "probando":
+            _guardar(fid, mensaje=f"Flow: mirando los creditos de la cuenta {ev['perfil'] + 1}")
+    aspecto = CLIP_ASPECTO.get(o["formatos"][0], "9:16")
+    r = flow_gen.videos(clips_json, tmp, aspecto, avisar)
+    for i, huella, _, _ in pedidos:
+        hecho = os.path.join(tmp, f"clip_{i:04d}.mp4")
+        if not os.path.isfile(hecho):
+            continue
+        destino = os.path.join(_dir(fid, "clips"), f"escena_{i:03d}.mp4")
+        c = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", hecho, "-an", "-c:v", "libx264",
+                           "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", destino], timeout=900)
+        if c.returncode == 0 and os.path.isfile(destino):
+            marcas[str(i)] = huella
+            os.remove(hecho)
+    almacen.escribir_json(_dir(fid, "clips", "veo.json"), marcas)
+    faltan = sum(1 for i, *_ in pedidos if str(i) not in marcas or not _ruta_clip(fid, i))
+    aviso = ""
+    if faltan:
+        motivo = {4: "se acabaron los creditos de video en todas las cuentas de Flow",
+                  3: "ninguna cuenta de Flow tiene la sesion iniciada",
+                  5: "Google detecto actividad inusual y pidio parar un rato"}.get(r["codigo"], r.get("motivo") or "Flow fallo")
+        aviso = f"{faltan} de {total} escenas sin clip ({motivo}): se ven con su imagen. Rehaz desde las imagenes para reintentarlo."
+        logger.warning(f"fabrica {fid}: {aviso}")
+    _guardar(fid, aviso_clips=aviso, mensaje=f"clips de video listos ({total - faltan} de {total})")
+
+
+# ------------------------------------------------------------------ B-roll de stock (Pexels / Pixabay)
+
+STOCK_MAX = 6   # videos de stock por video como mucho (cada uno se baja entero)
+
+
+def _stock_de(e):
+    """La ruta del video de stock ya bajado de una escena (guion de Claude o ya validado), o None."""
+    st = e.get("stock")
+    ruta = st.get("archivo") if isinstance(st, dict) else st if isinstance(st, str) and os.path.isabs(st) else None
+    return ruta if ruta and os.path.isfile(ruta) else None
+
+
+def _buscar_stock(fid, crudo, o):
+    """Las escenas con "stock" (que buscar, en ingles) se buscan en Pexels y, si no, en Pixabay; con video
+    encontrado no se dibuja su imagen. Sin claves o sin resultado, la escena se queda con su dibujo."""
+    from app.models.schema import VideoAspect
+    from app.services import material
+    aspecto = VideoAspect.landscape if o["formatos"][0] == "16:9" else VideoAspect.portrait
+    usados, hechos = set(), 0
+    for e in crudo.get("escenas") or []:
+        if not isinstance(e, dict) or e.get("tipo") != "ilustracion":
+            continue
+        q = _txt(e.get("stock"), 60) if isinstance(e.get("stock"), str) else ""
+        e.pop("stock", None)
+        if not q or hechos >= STOCK_MAX:
+            continue
+        _guardar(fid, mensaje=f"buscando video real: {q}")
+        for buscar, clave in ((material.search_videos_pexels, "pexels_api_keys"),
+                              (material.search_videos_pixabay, "pixabay_api_keys")):
+            if not config.app.get(clave):
+                continue
+            try:
+                hallados = buscar(q, 4, aspecto)
+            except Exception as ex:  # noqa: BLE001 -- sin stock, la escena se dibuja
+                logger.warning(f"fabrica {fid}: stock '{q}': {ex}")
+                continue
+            v = next((v for v in hallados if v.url not in usados), None)
+            ruta = material.save_video(v.url) if v else ""
+            if ruta and os.path.isfile(ruta):
+                usados.add(v.url)
+                e["stock"] = {"archivo": os.path.abspath(ruta), "q": q, "fuente": v.provider}
+                hechos += 1
+                break
+    if hechos:
+        logger.info(f"fabrica {fid}: {hechos} escenas con video de stock")
+
+
+def _clip_stock(fid, i, archivo):
+    """El video de stock de la escena i como su clip (sin audio, h264). Uno subido a mano o de Veo manda."""
+    marcas = almacen.leer_json(_dir(fid, "clips", "stock.json"), {}) or {}
+    ruta = _ruta_clip(fid, i)
+    if ruta and marcas.get(str(i)) == archivo:
+        return
+    if ruta and str(i) not in marcas:
+        return   # clip propio de esa escena
+    if not os.path.isfile(archivo):
+        return
+    destino = os.path.join(_dir(fid, "clips", crear=True), f"escena_{int(i):03d}.mp4")
+    r = medios.correr([medios.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", archivo, "-an", "-t", "20",
+                       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", destino], timeout=900)
+    if r.returncode == 0 and os.path.isfile(destino):
+        marcas[str(i)] = archivo
+        almacen.escribir_json(_dir(fid, "clips", "stock.json"), marcas)
+    else:
+        logger.warning(f"fabrica {fid}: no se pudo preparar el video de stock de la escena {i}: {r.stderr[-200:]}")

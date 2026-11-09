@@ -36,6 +36,8 @@ export default function EstudioFabrica({ id }: { id: string }) {
   const [miVoz, setMiVoz] = useState<{ voz: string; duracion: number; nombre: string } | null>(null);
   const [subiendoVoz, setSubiendoVoz] = useState(false);
   const [copiadoGuion, setCopiadoGuion] = useState(false);
+  // "Mi voz: leo el guion": Montar espera tu grabacion, salvo que elijas seguir con la voz de Microsoft
+  const [conMicrosoft, setConMicrosoft] = useState(false);
 
   const cargar = useCallback(() => fabrica.ver(id).then((x) => {
     setD(x);
@@ -80,10 +82,12 @@ export default function EstudioFabrica({ id }: { id: string }) {
   // con una grabacion propia el texto de las escenas es lo que se oye: no se edita
   const grabada = d.opciones.voz.startsWith("propia:");
 
+  // un video de la pestana Video 3D vuelve alli, no a la Fabrica
+  const volver = ["diorama3d", "mundo3d"].includes(d.opciones?.estilo) ? "/video3d" : "/fabrica";
   return (
     <main className="mx-auto max-w-6xl px-4 pb-24 pt-8">
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Link href="/fabrica" className="boton boton-fantasma !p-2"><ArrowLeft size={16} /></Link>
+        <Link href={volver} className="boton boton-fantasma !p-2"><ArrowLeft size={16} /></Link>
         <h1 className="font-display text-2xl font-semibold">{d.titulo}</h1>
         <button className="boton boton-linea ml-auto !py-1.5 text-sm" title="Guardar las opciones de este video como molde para repetirlas"
           onClick={() => {
@@ -93,7 +97,7 @@ export default function EstudioFabrica({ id }: { id: string }) {
           <Save size={14} /> Guardar como molde
         </button>
         <button className="boton boton-fantasma !p-2" title="Borrar" disabled={trabajando}
-          onClick={() => confirm("¿Borrar este video y todo lo generado?") && accion(async () => { await fabrica.borrar(id); router.push("/fabrica"); })}>
+          onClick={() => confirm("¿Borrar este video y todo lo generado?") && accion(async () => { await fabrica.borrar(id); router.push(volver); })}>
           <Trash2 size={16} />
         </button>
       </div>
@@ -109,9 +113,25 @@ export default function EstudioFabrica({ id }: { id: string }) {
         </div>
       )}
 
+      {d.aviso_clips && !trabajando && (
+        <p className="mb-5 rounded-2xl border border-linea bg-tarjeta p-3 text-sm text-tinta-2">🎬 {d.aviso_clips}</p>
+      )}
+
       {d.estado === "revision" && (
         <div className="mb-5 rounded-2xl border border-marca/40 bg-tarjeta p-4">
           <p className="flex items-center gap-2 font-semibold"><Clapperboard size={16} /> Antes de montar</p>
+          {d.opciones.leer && !miVoz && !conMicrosoft && guion && (
+            <div className="mt-3 rounded-xl border border-marca bg-hundido p-3">
+              <p className="flex items-center gap-2 text-sm font-semibold"><Mic size={14} /> Lee este guion y sube tu grabacion</p>
+              <p className="mt-1 text-xs text-tinta-3">Tal cual y de corrido: tus palabras marcan cada escena y los subtitulos. Puedes corregir el texto abajo antes de grabar.</p>
+              <div className="mt-2 max-h-72 space-y-2 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                {guion.escenas.map((e, i) => <p key={i}>{e.texto}</p>)}
+              </div>
+              <button className="boton boton-fantasma mt-2 !px-2 !py-1 text-xs" onClick={() => setConMicrosoft(true)}>
+                Mejor con la voz de Microsoft ({d.opciones.voz})
+              </button>
+            </div>
+          )}
           <p className="mt-1 text-sm text-tinta-2">
             El guion y las imagenes estan listos.{d.opciones.clips ? " Sube los clips en sus escenas (abajo)." : ""} Corrige el texto
             si quieres, elige la musica y la voz, y dale a Montar.
@@ -162,9 +182,10 @@ export default function EstudioFabrica({ id }: { id: string }) {
               <p className="mt-1.5 text-xs text-tinta-3">Lee el texto de las escenas tal cual: tus palabras marcan el tiempo de cada escena y los subtitulos.</p>
             </div>
           </div>
-          <button className="boton boton-acento mt-4" disabled={cambiado || subiendoVoz}
-            title={cambiado ? "Guarda primero los cambios del guion" : ""}
-            onClick={() => accion(() => fabrica.montar(id, { musica: musica ?? "random", ...(miVoz ? { voz: miVoz.voz } : {}) }))}>
+          <button className="boton boton-acento mt-4" disabled={cambiado || subiendoVoz || (!!d.opciones.leer && !miVoz && !conMicrosoft)}
+            title={cambiado ? "Guarda primero los cambios del guion" : d.opciones.leer && !miVoz && !conMicrosoft ? "Sube primero tu grabacion" : ""}
+            onClick={() => accion(() => fabrica.montar(id, { musica: musica ?? "random",
+              ...(miVoz ? { voz: miVoz.voz } : d.opciones.leer ? { voz: d.opciones.voz } : {}) }))}>
             <Clapperboard size={14} /> Montar video
           </button>
         </div>

@@ -7,8 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, Loader2, Play, Plus, Scissors, Sparkles, Trash2 } from "lucide-react";
-import { AvisoError, Segmentado, Tarjeta } from "./ui";
+import { ArrowLeft, Download, ExternalLink, Loader2, Pencil, Play, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from "lucide-react";
+import { Accion, AvisoError, Segmentado, Tarjeta } from "./ui";
 import { banco, clipStudio, mmss, type DetalleClips, type MomentoClip, type OpcionesShort, type SesionBanco } from "@/lib/api";
 
 const TRABAJANDO = ["transcribiendo", "proponiendo", "exportando"];
@@ -118,10 +118,23 @@ export default function EstudioClips({ id }: { id: string }) {
                 {d.exportados.map((s) => (
                   <li key={s.archivo} className="space-y-1">
                     <video src={clipStudio.urlShort(id, s.archivo)} controls preload="metadata" className="aspect-[9/16] w-full rounded-lg bg-black" />
-                    <p className="truncate text-xs" title={s.titulo}>{s.titulo}</p>
-                    <a className="boton boton-linea w-full justify-center !py-1 text-xs" href={clipStudio.urlShort(id, s.archivo, true)}>
-                      <Download size={12} /> {s.tam_mb} MB
-                    </a>
+                    <p className="truncate text-xs" title={s.titulo}>{s.titulo} <span className="text-tinta-3">· {s.tam_mb} MB</span></p>
+                    <div className="flex flex-wrap items-center">
+                      <Accion icono={<ExternalLink size={13} />} texto="Ver" soloIcono href={clipStudio.urlShort(id, s.archivo)} />
+                      <Accion icono={<Download size={13} />} texto="Descargar" soloIcono href={clipStudio.urlShort(id, s.archivo, true)} />
+                      <Accion icono={<Pencil size={13} />} texto="Renombrar" soloIcono onClick={async () => {
+                        const titulo = prompt("Nuevo nombre", s.titulo)?.trim();
+                        if (titulo && titulo !== s.titulo) await clipStudio.renombrarShort(id, s.archivo, titulo).then(setD).catch((e) => setError(e.message));
+                      }} />
+                      <Accion icono={<RefreshCw size={13} />} texto={s.opciones ? "Rehacer con las mismas opciones" : "Rehacer (este short es de antes: exportalo otra vez desde su momento)"}
+                        soloIcono disabled={!s.opciones || d.estado === "exportando"} onClick={async () => {
+                          if (confirm("¿Rehacer este short? Se vuelve a generar con las mismas opciones (el B-roll puede cambiar)."))
+                            await clipStudio.rehacerShort(id, s.archivo).then(cargar).catch((e) => setError(e.message));
+                        }} />
+                      <Accion icono={<Trash2 size={13} />} texto="Borrar" soloIcono peligro derecha disabled={d.estado === "exportando"} onClick={async () => {
+                        if (confirm(`¿Borrar el short "${s.titulo}"?`)) await clipStudio.borrarShort(id, s.archivo).then(setD).catch((e) => setError(e.message));
+                      }} />
+                    </div>
                   </li>
                 ))}
               </ul>

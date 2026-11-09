@@ -102,7 +102,7 @@ export default function PaginaClonar() {
           </ul>
         </aside>
 
-        <section>
+        <section className="min-w-0">
           {!d ? (
             <p className="rounded-2xl border border-dashed border-linea p-10 text-center text-sm text-tinta-3">
               Pega un enlace o elige un clon de la lista. Tambien puedes darle a «Clonar» en Ideas virales.
@@ -148,7 +148,7 @@ function Receta({ d, onBorrar, onReplicar }: {
   const voces = AZURE_VOICES.filter((v) => v.lang.startsWith("es"));
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <div className="rounded-2xl border border-linea bg-tarjeta p-5">
         <div className="flex items-start justify-between gap-3">
           <div>

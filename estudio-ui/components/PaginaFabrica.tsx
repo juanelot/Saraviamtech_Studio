@@ -11,9 +11,11 @@ import {
 import { AZURE_VOICES } from "@/lib/voces";
 import GaleriaEstilos from "@/components/GaleriaEstilos";
 import NuevoPresentador from "@/components/NuevoPresentador";
+import EscucharVoz from "@/components/EscucharVoz";
 import Paginacion, { usePaginas } from "@/components/Paginacion";
 
 const TRABAJANDO = ["en cola", "guion", "voz", "render", "montaje"];
+const ESTILOS_3D = ["diorama3d", "mundo3d"];   // videos de la pestana Video 3D: no salen en la lista de la Fabrica
 
 export default function PaginaFabrica() {
   const router = useRouter();
@@ -31,7 +33,8 @@ export default function PaginaFabrica() {
   const [idioma, setIdioma] = useState("es-ES");
   const [voz, setVoz] = useState("es-ES-AlvaroNeural-Male");
   // voz: de Microsoft o una grabacion propia (el guion se adapta a ella)
-  const [fuente, setFuente] = useState<"microsoft" | "grabacion">("microsoft");
+  const [fuente, setFuente] = useState<"microsoft" | "gemini" | "leer" | "grabacion">("microsoft");
+  const [vozGemini, setVozGemini] = useState("gemini:Kore");
   const [grabacion, setGrabacion] = useState<{ voz: string; duracion: number; nombre: string } | null>(null);
   const [subiendoVoz, setSubiendoVoz] = useState(false);
   // musica: "random", "" (sin musica) o una cancion
@@ -42,6 +45,7 @@ export default function PaginaFabrica() {
   const [subtitulos, setSubtitulos] = useState(true);
   const [efectos, setEfectos] = useState(true);
   const [foco, setFoco] = useState(true);
+  const [stock, setStock] = useState(false);
   const [nuevos, setNuevos] = useState(true);
   // por defecto se para tras el guion: copias el texto, lo grabas (o usas la voz de Microsoft) y luego se monta
   const [revisar, setRevisar] = useState(true);
@@ -80,7 +84,7 @@ export default function PaginaFabrica() {
   const quitarIdea = (t: string) => fabrica.quitarIdea(nicho, t).then((r) => setIdeas(r.ideas)).catch(() => {});
 
   const cargar = useCallback(() => fabrica.listar()
-    .then((r) => setLista(r.videos))
+    .then((r) => setLista(r.videos.filter((s) => !ESTILOS_3D.includes(s.opciones.estilo))))   // los 3D viven en Video 3D
     .catch((e) => setError(String(e.message || e))), []);
   useEffect(() => {
     fabrica.catalogo().then(setCat).catch((e) => setError(String(e.message || e)));
@@ -139,7 +143,8 @@ export default function PaginaFabrica() {
   };
   const paginas = usePaginas(lista, 12);
 
-  const vozFinal = fuente === "microsoft" ? voz : grabacion?.voz || "";
+  // "leer": se manda la voz de Microsoft elegida (por si al final no grabas) y leer: true
+  const vozFinal = fuente === "grabacion" ? grabacion?.voz || "" : fuente === "gemini" ? vozGemini : voz;
   const listo = !!vozFinal && (fuente === "grabacion" || !!tema.trim());
   // lote: un video por linea (no con grabacion propia, que es de un solo video)
   const temas = varios && fuente !== "grabacion" ? tema.split("\n").map((t) => t.trim()).filter(Boolean) : [];
@@ -171,7 +176,7 @@ export default function PaginaFabrica() {
     setError(null);
     try {
       const opciones = { nicho, estilo, formatos, voz: vozFinal, duracion: Number(duracion), musica,
-        musica_volumen: volMusica, subtitulos, efectos, foco, nuevos, idioma: nombreIdioma, velocidad: 1, serie, marca, visual, presentador, revisar, clips, banco: usarBanco ? bancoSel : [], banco_modo: bancoModo, ...extra };
+        musica_volumen: volMusica, subtitulos, efectos, foco, stock, nuevos, idioma: nombreIdioma, velocidad: 1, serie, marca, visual, presentador, revisar: revisar || fuente === "leer", leer: fuente === "leer", clips, banco: usarBanco ? bancoSel : [], banco_modo: bancoModo, ...extra };
       const unico = temas.length > 1 ? "" : (temas[0] || tema).trim();
       if (unico) {
         // no repetir: si ya hay un video casi igual, se pregunta antes
@@ -203,7 +208,7 @@ export default function PaginaFabrica() {
     const o = m.opciones;
     setNicho(o.nicho); setEstilo(o.estilo); setFormatos(o.formatos); setDuracion(String(o.duracion));
     setMusica(o.musica); setVolMusica(o.musica_volumen); setSubtitulos(o.subtitulos); setEfectos(o.efectos);
-    setFoco(o.foco ?? true); setNuevos(o.nuevos); setSerie(o.serie || ""); setVisual(o.visual || ""); setPresentador(o.presentador || "");
+    setFoco(o.foco ?? true); setStock(o.stock ?? false); setNuevos(o.nuevos); setSerie(o.serie || ""); setVisual(o.visual || ""); setPresentador(o.presentador || "");
     setRevisar(!!o.revisar); setClips(!!o.clips);
     setBancoSel(o.banco || []); setUsarBanco(!!o.banco?.length); setBancoModo(o.banco_modo || "insertos");
     if (o.marca) cambiarMarca(o.marca);
@@ -221,7 +226,7 @@ export default function PaginaFabrica() {
     setError(null);
     try {
       const m = await fabrica.guardarMolde(nombre.trim(), { opciones: { nicho, estilo, formatos, voz: vozFinal, duracion: Number(duracion), musica,
-        musica_volumen: volMusica, subtitulos, efectos, foco, nuevos, idioma: nombreIdioma, velocidad: 1, serie, marca, visual, presentador, revisar, clips, banco: usarBanco ? bancoSel : [], banco_modo: bancoModo, ...extra } });
+        musica_volumen: volMusica, subtitulos, efectos, foco, stock, nuevos, idioma: nombreIdioma, velocidad: 1, serie, marca, visual, presentador, revisar: revisar || fuente === "leer", leer: fuente === "leer", clips, banco: usarBanco ? bancoSel : [], banco_modo: bancoModo, ...extra } });
       const r = await fabrica.moldes();
       setMoldes(r.moldes);
       setMolde(m.id);
@@ -323,7 +328,7 @@ export default function PaginaFabrica() {
               }}
                 title={cat?.series?.find((s) => s.id === serie)?.descripcion || "Sin formato fijo"}>
                 <option value="">Ninguna</option>
-                {cat?.series?.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                {cat?.series?.filter((s) => !s.solo).map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
               </select>
             </Campo>
             <Campo etiqueta="Presentador">
@@ -371,19 +376,36 @@ export default function PaginaFabrica() {
                 {idiomas.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
             </Campo>
-            {fuente === "microsoft" && (
-              <Campo etiqueta="Voz">
-                <select className="campo" value={voz} onChange={(e) => setVoz(e.target.value)}>
-                  {voces.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
-                </select>
+            {fuente !== "grabacion" && (
+              <Campo etiqueta={fuente === "leer" ? "Voz si al final no grabas" : fuente === "gemini" ? "Voz de Gemini (habla cualquier idioma)" : "Voz"}>
+                {fuente === "gemini" ? (
+                  <div className="flex items-start gap-2">
+                    <select className="campo flex-1" value={vozGemini} onChange={(e) => setVozGemini(e.target.value)}>
+                      {(cat?.voces_gemini || []).map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+                    </select>
+                    <EscucharVoz voz={vozGemini} idioma={nombreIdioma} />
+                  </div>
+                ) : (
+                  <select className="campo" value={voz} onChange={(e) => setVoz(e.target.value)}>
+                    {voces.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+                  </select>
+                )}
               </Campo>
             )}
           </div>
           <div className="mt-4">
             <Segmentado valor={fuente} onChange={setFuente} opciones={[
               { v: "microsoft" as const, t: "Voz de Microsoft" },
-              { v: "grabacion" as const, t: "Subir grabacion" },
+              ...(cat?.voces_gemini?.length ? [{ v: "gemini" as const, t: "Voz de Gemini" }] : []),
+              { v: "leer" as const, t: "Mi voz: leo el guion" },
+              { v: "grabacion" as const, t: "Ya tengo la grabacion" },
             ]} />
+            {fuente === "leer" && (
+              <p className="mt-2 text-xs text-tinta-3">
+                Claude escribe el guion y se para. En el video te sale el texto para leerlo: lo grabas, lo subes y Montar
+                hace el resto (tus palabras marcan cada escena y los subtitulos).
+              </p>
+            )}
             {fuente === "grabacion" && (
               <div className="mt-3">
                 <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-linea p-3 text-sm text-tinta-2 hover:border-tinta-3">
@@ -470,13 +492,16 @@ export default function PaginaFabrica() {
             <label className="flex items-center gap-2" title="Solo brilla lo que se nombra: en listas, barras, lineas de tiempo y mapas que van de un sitio a otro, lo de antes se apaga">
               <input type="checkbox" checked={foco} onChange={(e) => setFoco(e.target.checked)} /> Foco
             </label>
+            <label className="flex items-center gap-2" title="Claude marca las escenas que se cuentan mejor con video real (un lugar, gente, naturaleza) y se buscan en Pexels o Pixabay con tus claves de Configuracion; si no aparece, se dibuja">
+              <input type="checkbox" checked={stock} onChange={(e) => setStock(e.target.checked)} /> Videos reales (Pexels/Pixabay)
+            </label>
             <label className="flex items-center gap-2" title="Si a Claude le falta un personaje o una escena, Nano Banana lo dibuja y se guarda en la biblioteca (solo en el PC con Flow)">
               <input type="checkbox" checked={nuevos} onChange={(e) => setNuevos(e.target.checked)} /> Dibujos nuevos con Nano Banana
             </label>
             <label className="flex items-center gap-2" title="Se para con el guion y las imagenes hechos: subes tus clips, tu voz leyendo el guion o eliges la musica, y luego Montar">
-              <input type="checkbox" checked={revisar || clips} disabled={clips} onChange={(e) => setRevisar(e.target.checked)} /> Revisar antes de montar
+              <input type="checkbox" checked={revisar || fuente === "leer"} disabled={fuente === "leer"} onChange={(e) => setRevisar(e.target.checked)} /> Revisar antes de montar
             </label>
-            <label className="flex items-center gap-2" title="Cada ilustracion trae su prompt de video para hacer el clip aparte (Seedance, Veo...) y subirlo antes de montar">
+            <label className="flex items-center gap-2" title="Cada ilustracion trae su prompt de video. En el PC con Flow, Veo hace los clips solo (con pausas: Google frena si van seguidos; los que no salgan se quedan con su imagen). Sin Flow (VPS) se para para que los subas">
               <input type="checkbox" checked={clips} onChange={(e) => setClips(e.target.checked)} /> Clips de video
             </label>
           </div>

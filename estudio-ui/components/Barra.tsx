@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  Clapperboard, CopyPlus, Factory, Film, Library, Menu, ScrollText, Settings, Scissors, TrendingUp, X,
+  Box, Clapperboard, CopyPlus, Factory, Film, Library, Menu, ScrollText, Settings, Scissors, TrendingUp, X,
 } from "lucide-react";
 import { MARCA } from "@/lib/marca";
 
@@ -14,6 +14,7 @@ const ITEMS: Item[] = [
   { href: "/", texto: "Mis videos", icono: <Film size={17} /> },
   { href: "/maestros", texto: "Prompts maestros", icono: <ScrollText size={17} /> },
   { href: "/clips", texto: "Clip Studio", icono: <Scissors size={17} /> },
+  { href: "/video3d", texto: "Video 3D", icono: <Box size={17} /> },
   {
     href: "/fabrica", texto: "Fabrica", icono: <Factory size={17} />, hijos: [
       { href: "/fabrica/biblioteca", texto: "Biblioteca de dibujos", icono: <Library size={15} /> },

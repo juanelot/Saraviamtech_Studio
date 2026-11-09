@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 export const CDP_PORT = Number(process.env.FLOW_CDP_PORT || 9333);
 export const FLOW_URL = 'https://flow.google.com/';
@@ -30,11 +31,92 @@ export function chromePath() {
 }
 
 // Dedicated user-data-dir (Chrome refuses remote debugging on the default one).
-export function userDataDir() {
-  if (process.env.FLOW_USER_DATA_DIR) return process.env.FLOW_USER_DATA_DIR;
+function dirBase() {
   if (isWin) return path.join(process.env.LOCALAPPDATA || os.homedir(), 'FlowImageChrome');
   if (isMac) return path.join(os.homedir(), 'Library/Application Support/FlowImageChrome');
   return path.join(os.homedir(), '.config/FlowImageChrome');
+}
+
+// ---------- perfiles: una cuenta de Google por perfil de Chrome ----------
+// perfiles.json: {"actual": 0, "perfiles": [{"dir", "email", "creditos", "visto", "sin_sesion"}]}. El 0 es el
+// perfil de siempre (FlowImageChrome); los demas FlowImageChrome-2, -3... Solo un Chrome a la vez (un puerto CDP):
+// cambiar de cuenta = cerrar el Chrome y abrirlo con otro perfil.
+const RUTA_PERFILES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'perfiles.json');
+const RUTA_ABIERTO = `${RUTA_PERFILES}.abierto`;   // el dir con que se abrio el Chrome que esta corriendo
+
+export function leerPerfiles() {
+  let d = {};
+  try { d = JSON.parse(fs.readFileSync(RUTA_PERFILES, 'utf8')); } catch { /* primera vez */ }
+  const perfiles = Array.isArray(d.perfiles) && d.perfiles.length ? d.perfiles : [{ dir: dirBase() }];
+  const actual = Number.isInteger(d.actual) && d.actual >= 0 && d.actual < perfiles.length ? d.actual : 0;
+  return { actual, perfiles };
+}
+
+export function guardarPerfiles(d) {
+  const tmp = `${RUTA_PERFILES}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
+  fs.renameSync(tmp, RUTA_PERFILES);
+}
+
+export function anotarPerfil(i, cambios) {
+  const d = leerPerfiles();
+  if (!d.perfiles[i]) return d;
+  d.perfiles[i] = { ...d.perfiles[i], ...cambios };
+  guardarPerfiles(d);
+  return d;
+}
+
+export function nuevoPerfil() {
+  const d = leerPerfiles();
+  const usados = new Set(d.perfiles.map((p) => p.dir));
+  let n = 2;
+  while (usados.has(`${dirBase()}-${n}`)) n++;
+  d.perfiles.push({ dir: `${dirBase()}-${n}` });
+  guardarPerfiles(d);
+  return d.perfiles.length - 1;
+}
+
+export function quitarPerfil(i) {
+  const d = leerPerfiles();
+  if (i <= 0 || i >= d.perfiles.length) throw new Error('ese perfil no se puede quitar');
+  const [p] = d.perfiles.splice(i, 1);
+  if (d.actual >= d.perfiles.length || d.actual === i) d.actual = 0;
+  else if (d.actual > i) d.actual--;
+  guardarPerfiles(d);
+  fs.rmSync(p.dir, { recursive: true, force: true });
+  return d;
+}
+
+export function userDataDir() {
+  if (process.env.FLOW_USER_DATA_DIR) return process.env.FLOW_USER_DATA_DIR;
+  const d = leerPerfiles();
+  return d.perfiles[d.actual].dir;
+}
+
+// Cierra el Chrome de Flow (si esta abierto) y espera a que suelte el puerto.
+export async function cerrarChrome() {
+  if (!(await cdpAlive())) return false;
+  try {
+    const v = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).json();
+    const ws = new WebSocket(v.webSocketDebuggerUrl);
+    await new Promise((ok, mal) => { ws.onopen = ok; ws.onerror = mal; });
+    ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+  } catch { /* ya se estaba cerrando */ }
+  for (let i = 0; i < 40 && (await cdpAlive()); i++) await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 800));   // que suelte el bloqueo del perfil
+  return true;
+}
+
+// Pasa al perfil i: si el Chrome abierto es de otro perfil, se cierra (el siguiente ensureChrome abre el nuevo).
+export async function usarPerfil(i) {
+  const d = leerPerfiles();
+  if (!d.perfiles[i]) throw new Error(`no hay perfil ${i}`);
+  d.actual = i;
+  guardarPerfiles(d);
+  let abierto = null;
+  try { abierto = fs.readFileSync(RUTA_ABIERTO, 'utf8'); } catch { /* nada abierto por nosotros */ }
+  if ((await cdpAlive()) && abierto !== d.perfiles[i].dir) await cerrarChrome();
+  return d.perfiles[i];
 }
 
 // The user's normal Chrome data dir, used only by `setup --from-profile` on macOS.
@@ -77,6 +159,7 @@ export async function ensureChrome({ url = FLOW_URL } = {}) {
     url,
   ], { detached: true, stdio: 'ignore' });
   child.unref();
+  try { fs.writeFileSync(RUTA_ABIERTO, dir); } catch { /* solo sirve para saber que perfil esta abierto */ }
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (await cdpAlive()) return { started: true };

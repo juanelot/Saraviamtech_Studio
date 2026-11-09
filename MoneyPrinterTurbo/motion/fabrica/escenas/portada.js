@@ -4,6 +4,10 @@
 //            protagonista?: src,  (sin mapa: la pegatina de quien va el video, grande junto al titulo)
 //            fondo_img?: src }  (Retro TV / Thriller: la primera ilustracion a pantalla completa)
 F.montar(() => {
+  // La portada es el primer fotograma y la miniatura del perfil: en vertical, titulo y protagonista dentro de
+  // lo que no tapan los botones de la derecha ni el texto de abajo y que sobrevive al recorte 3:4 de la cuadricula
+  // (de 300 a 1350 px de alto y de 120 a 860 de ancho en 1080x1920).
+  const Z = F.vertical ? { x: F.W * 0.111, y: F.H * 0.156, w: F.W * 0.685, h: F.H * 0.547 } : F.zona;
   const E = F.E;
   if (E.mapa) {
     const mapa = F.crearMapa(F.escena, F.zonaMapa("portada"), { satelite: E.satelite });
@@ -32,9 +36,9 @@ F.montar(() => {
   const sombraIzq = E.fondo_img && F.v("sombra-portada") === "si";
   const con = E.mapa || E.protagonista || E.fondo_img;
   const lado = (con && !F.vertical) || sombraIzq;
-  const ancho = sombraIzq ? F.zona.w * (F.vertical ? 0.62 : 0.5) : lado ? F.zona.w * 0.48 : F.zona.w;
+  const ancho = sombraIzq ? Z.w * (F.vertical ? 0.62 : 0.5) : lado ? Z.w * 0.48 : Z.w;
   const caja = F.crear("div", "titulo");
-  caja.style.cssText += `position:absolute;left:${F.zona.x}px;width:${ancho}px;text-align:${lado ? "left" : "center"};`;
+  caja.style.cssText += `position:absolute;left:${Z.x}px;width:${ancho}px;text-align:${lado ? "left" : "center"};`;
   if (E.antetitulo) {
     const ante = F.crear("div", "", caja);
     ante.textContent = E.antetitulo;
@@ -43,16 +47,16 @@ F.montar(() => {
   const titulo = F.crear("div", "", caja);
   // cada palabra en su span para que se asienten una tras otra
   titulo.innerHTML = F.enPalabras(E.titulo || "");
-  const alto = con && F.vertical ? F.zona.h * 0.42 : F.zona.h * 0.8;
+  const alto = con && F.vertical ? Z.h * 0.42 : Z.h * 0.8;
   F.ajustar(caja, ancho, alto, F.corto * 0.14);
-  caja.style.top = (sombraIzq ? F.zona.y + (F.zona.h - caja.offsetHeight) * 0.4
-    : con && F.vertical ? F.zona.y : F.zona.y + (F.zona.h - caja.offsetHeight) / 2) + "px";
+  caja.style.top = (sombraIzq ? Z.y + (Z.h - caja.offsetHeight) * 0.4
+    : con && F.vertical ? Z.y : Z.y + (Z.h - caja.offsetHeight) / 2) + "px";
   if (E.protagonista && !E.mapa) {
     // debajo del titulo (vertical) o a la derecha (horizontal); ya visible en el primer fotograma
-    const libre = F.vertical ? { x: F.zona.x, y: F.zona.y + caja.offsetHeight + F.corto * 0.05, w: F.zona.w }
-                             : { x: F.zona.x + ancho + F.corto * 0.04, y: F.zona.y, w: F.zona.w - ancho - F.corto * 0.04 };
+    const libre = F.vertical ? { x: Z.x, y: Z.y + caja.offsetHeight + F.corto * 0.05, w: Z.w }
+                             : { x: Z.x + ancho + F.corto * 0.04, y: Z.y, w: Z.w - ancho - F.corto * 0.04 };
     // sin subtitulos en la portada (el titulo ya dice lo mismo) puede bajar mas que la zona segura
-    libre.h = ((E.subtitulos || []).length || !F.vertical ? F.zona.y + F.zona.h : F.H * 0.8) - libre.y;
+    libre.h = ((E.subtitulos || []).length || !F.vertical ? Z.y + Z.h : F.H * 0.7) - libre.y;
     // las pegatinas traen margen transparente: se dibuja algo mas grande que el hueco
     const lado_px = Math.min(libre.w * 1.05, libre.h * 1.1);
     const caja_p = F.crear("div", "");

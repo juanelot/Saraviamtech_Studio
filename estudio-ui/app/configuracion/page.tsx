@@ -1,8 +1,9 @@
 "use client";
 
+import CuentasFlow from "@/components/CuentasFlow";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ExternalLink, Loader2, LogIn, LogOut, RefreshCw } from "lucide-react";
-import { ajustes, type EstadoClaude, type EstadoFlowAjustes, type OpcionesAjustes } from "@/lib/api";
+import { Check, ExternalLink, Loader2, LogIn, LogOut, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ajustes, type EstadoClaude, type EstadoFlowAjustes, type EstadoTelegram, type EstadoYoutube, type OpcionesAjustes } from "@/lib/api";
 import { AvisoError, Campo, Segmentado, Tarjeta } from "@/components/ui";
 
 const MODELOS_CLAUDE = [{ v: "haiku", t: "Haiku" }, { v: "sonnet", t: "Sonnet" }, { v: "opus", t: "Opus" }];
@@ -33,6 +34,12 @@ export default function Configuracion() {
   const [op, setOp] = useState<OpcionesAjustes | null>(null);
   const [claude, setClaude] = useState<EstadoClaude | null>(null);
   const [flow, setFlow] = useState<EstadoFlowAjustes | null>(null);
+  const [tg, setTg] = useState<EstadoTelegram | null>(null);
+  const [yt, setYt] = useState<EstadoYoutube | null>(null);
+  const archivoYt = useRef<HTMLInputElement>(null);
+  const [token, setToken] = useState("");
+  const [claveGemini, setClaveGemini] = useState("");
+  const [claveStock, setClaveStock] = useState({ pexels: "", pixabay: "" });
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [guardado, setGuardado] = useState(false);
@@ -41,11 +48,19 @@ export default function Configuracion() {
 
   useEffect(() => {
     ajustes.ver().then((d) => {
-      setOp(d.opciones); setClaude(d.claude); setFlow(d.flow);
+      setOp(d.opciones); setClaude(d.claude); setFlow(d.flow); setTg(d.telegram);
       setCarpetas(d.opciones.estudio_carpetas_permitidas.join("\n"));
       if (d.flow.habilitado) ajustes.flow().then(setFlow).catch(() => {});
+      ajustes.youtube().then(setYt).catch(() => {});
     }).catch((e) => setError(e.message));
   }, []);
+
+  // El bot arranca en segundo plano y los chats nuevos llegan solos: mirar cada 4 s.
+  useEffect(() => {
+    if (!op?.telegram_habilitado) return;
+    const t = setInterval(() => ajustes.telegram().then(setTg).catch(() => {}), 4000);
+    return () => clearInterval(t);
+  }, [op?.telegram_habilitado]);
 
   // Mientras se inicia sesion en Claude (en el navegador), mirar cada 2 s si ya entro.
   useEffect(() => {
@@ -235,7 +250,176 @@ export default function Configuracion() {
               </Campo>
             </div>
           )}
+          {op.estudio_flow_habilitado && <CuentasFlow />}
           </>)}
+        </Tarjeta>
+
+        <Tarjeta titulo="Telegram" extra={
+          !op.telegram_habilitado ? <Punto color="gris" texto="Desactivado" />
+            : tg?.activo && tg.usuario ? <Punto color="ok" texto={`Conectado: @${tg.usuario}`} />
+              : tg?.error ? <Punto color="error" texto="No conecta" />
+                : <Punto color="aviso" texto="Arrancando..." />
+        }>
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-sm text-tinta-2">
+              Maneja el estudio desde el celular: pide videos, revisa el guion, manda tu voz y recibe el MP4. Cada equipo (este PC y el VPS) necesita su propio bot.
+            </p>
+            <Interruptor si={op.telegram_habilitado} disabled={!op.telegram_token_puesto && !token}
+              onChange={(si) => guardar({ telegram_habilitado: si })} />
+          </div>
+          {tg?.error && op.telegram_habilitado && <p className="mt-2 text-xs text-error">{tg.error}</p>}
+          <div className="mt-5 grid gap-5 border-t border-linea pt-5 sm:grid-cols-2">
+            <Campo etiqueta="Token del bot" ayuda={op.telegram_token_puesto ? `Guardado (termina en ${op.telegram_token_final}). Escribe otro para cambiarlo.` : "Te lo da @BotFather al crear el bot."}>
+              <div className="flex gap-2">
+                <input type="password" className="campo flex-1" placeholder={op.telegram_token_puesto ? "••••••••" : "123456:ABC..."} value={token}
+                  onChange={(e) => setToken(e.target.value)} autoComplete="off" />
+                <button className="boton boton-linea" disabled={!token.trim()} onClick={async () => {
+                  if (await guardar({ telegram_token: token.trim() })) setToken("");
+                }}>Guardar</button>
+              </div>
+            </Campo>
+            <div>
+              <span className="etiqueta">Chats permitidos</span>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {op.telegram_chats.length === 0 && <span className="text-sm text-tinta-3">Ninguno. Escribe /start al bot y aparecera abajo para permitirlo.</span>}
+                {op.telegram_chats.map((c) => (
+                  <span key={c} className="inline-flex items-center gap-1.5 rounded-full border border-linea px-2.5 py-1 text-xs">
+                    {c}
+                    <button className="text-tinta-3 hover:text-error" title="Quitar" onClick={() => {
+                      if (confirm(`¿Quitar el chat ${c}? Ya no podra usar el bot.`)) guardar({ telegram_chats: op.telegram_chats.filter((x) => x !== c) });
+                    }}>✕</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          {!!tg?.pendientes.length && (
+            <div className="mt-5 rounded-xl border border-aviso/40 bg-aviso-suave p-3">
+              <p className="text-sm font-medium">Piden usar el bot:</p>
+              <ul className="mt-2 space-y-2">
+                {tg.pendientes.map((p) => (
+                  <li key={p.chat} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium">{p.nombre || "Sin nombre"}</span>
+                    {p.usuario && <span className="text-tinta-3">@{p.usuario}</span>}
+                    <span className="font-mono text-xs text-tinta-3">{p.chat}</span>
+                    <button className="boton boton-acento ml-auto !py-1 text-xs" onClick={() => accion("tg", async () => {
+                      const d = await ajustes.telegramPermitir(p.chat);
+                      setOp(d.opciones); setTg(await ajustes.telegram());
+                    })}>Permitir</button>
+                    <button className="boton boton-fantasma !py-1 text-xs" onClick={() => accion("tg", async () => {
+                      await ajustes.telegramRechazar(p.chat); setTg(await ajustes.telegram());
+                    })}>Ignorar</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Tarjeta>
+
+        <Tarjeta titulo="Voz de Gemini" extra={
+          op.gemini_clave_puesta ? <Punto color="ok" texto="Clave guardada" /> : <Punto color="gris" texto="Sin clave" />
+        }>
+          <p className="text-sm text-tinta-2">
+            Una voz mas natural que la de Microsoft para la Fabrica, con tu clave gratis de Google AI Studio. La clave gratis
+            tiene un cupo de voz por dia: si se acaba, usa la de Microsoft hasta el dia siguiente.
+          </p>
+          <div className="mt-5 border-t border-linea pt-5">
+            <Campo etiqueta="Clave de API de Gemini" ayuda={op.gemini_clave_puesta
+              ? `Guardada (termina en ${op.gemini_clave_final}). Escribe otra para cambiarla.`
+              : "La creas gratis en aistudio.google.com > Get API key."}>
+              <div className="flex gap-2">
+                <input type="password" className="campo flex-1" placeholder={op.gemini_clave_puesta ? "••••••••" : "AIza..."} value={claveGemini}
+                  onChange={(e) => setClaveGemini(e.target.value)} autoComplete="off" />
+                <button className="boton boton-linea" disabled={!claveGemini.trim()} onClick={async () => {
+                  if (await guardar({ gemini_api_key: claveGemini.trim() })) setClaveGemini("");
+                }}>Guardar</button>
+                {op.gemini_clave_puesta && (
+                  <button className="boton boton-linea hover:!text-error" onClick={() => {
+                    if (confirm("¿Quitar la clave de Gemini? La Fabrica dejara de ofrecer sus voces.")) guardar({ gemini_api_key: "" });
+                  }}>Quitar</button>
+                )}
+              </div>
+            </Campo>
+          </div>
+        </Tarjeta>
+
+        <Tarjeta titulo="Videos de stock (Pexels / Pixabay)" extra={
+          op.pexels_claves.length || op.pixabay_claves.length
+            ? <Punto color="ok" texto={`${op.pexels_claves.length + op.pixabay_claves.length} clave(s)`} />
+            : <Punto color="gris" texto="Sin claves" />
+        }>
+          <p className="text-sm text-tinta-2">
+            Claves gratis para buscar videos de fondo (B-roll). Si pones varias de la misma pagina se turnan para no gastar el
+            cupo de una sola.
+          </p>
+          {(["pexels", "pixabay"] as const).map((prov) => {
+            const claves = prov === "pexels" ? op.pexels_claves : op.pixabay_claves;
+            return (
+              <div key={prov} className="mt-5 border-t border-linea pt-5">
+                <Campo etiqueta={prov === "pexels" ? "Pexels" : "Pixabay"} ayuda={prov === "pexels"
+                  ? "La creas gratis en pexels.com/api."
+                  : "La creas gratis en pixabay.com/api/docs (aparece al iniciar sesion)."}>
+                  {claves.length > 0 && (
+                    <ul className="mb-2 flex flex-wrap gap-2">
+                      {claves.map((fin, i) => (
+                        <li key={i} className="flex items-center gap-2 rounded border border-linea px-2 py-1 text-xs">
+                          <span className="font-mono">••••{fin}</span>
+                          <button className="hover:text-error" title="Quitar" onClick={() => {
+                            if (confirm(`¿Quitar la clave de ${prov} que termina en ${fin}?`))
+                              accion("stock", async () => setOp((await ajustes.stock(prov, { quitar: i })).opciones));
+                          }}>✕</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="flex gap-2">
+                    <input type="password" className="campo flex-1" placeholder="Pega la clave" autoComplete="off"
+                      value={claveStock[prov]} onChange={(e) => setClaveStock({ ...claveStock, [prov]: e.target.value })} />
+                    <button className="boton boton-linea" disabled={!claveStock[prov].trim() || ocupado === "stock"}
+                      onClick={() => accion("stock", async () => {
+                        setOp((await ajustes.stock(prov, { agregar: claveStock[prov].trim() })).opciones);
+                        setClaveStock((c) => ({ ...c, [prov]: "" }));
+                      })}>Añadir</button>
+                  </div>
+                </Campo>
+              </div>
+            );
+          })}
+        </Tarjeta>
+
+        <Tarjeta titulo="YouTube (descargas)" extra={
+          !yt ? null
+            : yt.ok === false ? <Punto color="error" texto="YouTube bloquea este equipo" />
+              : yt.ok ? <Punto color="ok" texto="Descargas funcionando" />
+                : yt.cookies ? <Punto color="ok" texto="Cookies subidas" />
+                  : <Punto color="gris" texto="Sin cookies (normal en el PC)" />
+        }>
+          <p className="text-sm text-tinta-2">
+            Clonar video, el banco de clips e Ideas virales bajan de YouTube sin cuenta. En el servidor (VPS) YouTube a veces lo bloquea
+            ("confirma que no eres un bot"): ahi sube un <b className="text-tinta">cookies.txt</b> de una cuenta de YouTube. Usa una cuenta secundaria, no la principal.
+          </p>
+          {yt?.mensaje && <p className={`mt-2 text-xs ${yt.ok ? "text-tinta-3" : "text-error"}`}>{yt.mensaje}</p>}
+          {yt?.cookies && yt.fecha && <p className="mt-2 text-xs text-tinta-3">Cookies subidas el {yt.fecha}. Si un dia vuelve el bloqueo, exportalas otra vez.</p>}
+          <input ref={archivoYt} type="file" accept=".txt,text/plain" className="hidden" onChange={(e) => {
+            const f = e.target.files?.[0]; e.target.value = "";
+            if (f) accion("yt", async () => { await ajustes.youtubeSubir(f); setYt(await ajustes.youtubeProbar()); });
+          }} />
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button className="boton boton-acento" onClick={() => archivoYt.current?.click()} disabled={ocupado === "yt"}>
+              {ocupado === "yt" ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} {yt?.cookies ? "Cambiar cookies.txt" : "Subir cookies.txt"}
+            </button>
+            <button className="boton boton-fantasma" onClick={() => accion("yt", async () => setYt(await ajustes.youtubeProbar()))} disabled={ocupado === "yt"}>
+              <RefreshCw size={15} /> Probar descarga
+            </button>
+            {yt?.cookies && (
+              <button className="boton boton-linea hover:!text-error" disabled={ocupado === "yt"} onClick={() => {
+                if (confirm("¿Quitar las cookies de YouTube? Las descargas seguiran sin cuenta.")) accion("yt", async () => setYt(await ajustes.youtubeBorrar()));
+              }}><Trash2 size={15} /> Quitar</button>
+            )}
+          </div>
+          <p className="mt-3 text-xs text-tinta-3">
+            Como sacarlas: en Chrome instala la extension &quot;Get cookies.txt LOCALLY&quot;, entra a youtube.com con la sesion iniciada y exporta.
+          </p>
         </Tarjeta>
 
         <Tarjeta titulo="Carpetas del servidor">

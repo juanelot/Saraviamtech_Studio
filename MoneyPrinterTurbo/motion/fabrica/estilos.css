@@ -45,6 +45,17 @@ body {
   --grano: 0.08; --vineta: 0.55; --textura: rejilla; --entrada: pop;
 }
 
+/* Mundo 3D: escenario calido y oscuro, objetos de colores vivos y ambar de acento (escenas "mundo" en three.js). */
+[data-estilo="mundo3d"], [data-estilo="diorama3d"] {
+  --fondo: #140d08; --fondo-2: #2a1c12; --tinta: #f6efe6; --tinta-suave: #b3a493; --acento: #f5a524; --panel: rgba(28, 19, 12, 0.88);
+  --rojo: #ff5a4e; --azul: #5b8cff; --verde: #3ccf8e; --amarillo: #ffcf3f; --naranja: #ff7a3d; --morado: #a879ff; --gris: #7a7068;
+  --mar: #0f0a06; --tierra: #2a1c12; --borde: rgba(245, 165, 36, 0.4); --costa: #4a3a2c; --pais-alfa: 0.85;
+  --f-titulo: "Inter", Arial, sans-serif; --f-texto: "Inter", Arial, sans-serif; --f-dato: "Inter", Arial, sans-serif;
+  --peso-titulo: 800; --mayus: none; --espaciado: -0.02em;
+  --sub-color: #ffffff; --sub-resalte: #f5a524; --sub-borde: rgba(0, 0, 0, 0.85);
+  --grano: 0.05; --vineta: 0.5; --entrada: pop;
+}
+
 /* Documental: negro y oro de cine, letra alta y estrecha en mayusculas, mucho grano. */
 [data-estilo="documental"] {
   --fondo: #0a0a0a; --fondo-2: #1c1712; --tinta: #f4efe6; --tinta-suave: #a39a8a; --acento: #d4a24c; --panel: rgba(15, 12, 8, 0.85);
@@ -192,3 +203,17 @@ body {
   --grano: 0.04; --vineta: 0.45; --entrada: subir; --sombra-portada: si;
 }
 [data-estilo="retrotv"] .rotulo, [data-estilo="retrotv"] .golpe { text-transform: uppercase; }
+
+/* Novela: historia con clips de Veo detras (fotograma de cine). Subtitulos grandes blancos con borde oscuro,
+   portada con sombra para la frase; sin grano ni vineta encima del video (los pone nucleo.js solo sin clip). */
+[data-estilo="novela"] {
+  --fondo: #0b0b0d; --fondo-2: #1b1a1f; --tinta: #fffaf2; --tinta-suave: #c9c1b4; --acento: #ffd27a; --panel: rgba(11, 11, 13, 0.82);
+  --rojo: #e5484d; --azul: #5b8cff; --verde: #4fbf7a; --amarillo: #ffd27a; --naranja: #f08a3c; --morado: #a879ff; --gris: #8a8a94;
+  --mar: #101418; --tierra: #1f2228; --borde: rgba(255, 250, 242, 0.4); --costa: #8a8a94; --pais-alfa: 0.85;
+  --f-titulo: "Montserrat", Arial, sans-serif; --f-texto: "Montserrat", Arial, sans-serif; --f-dato: "Anton", Impact, sans-serif;
+  --f-subs: "Montserrat", Arial, sans-serif;
+  --peso-titulo: 900; --mayus: none; --espaciado: -0.01em;
+  --sub-color: #ffffff; --sub-resalte: #ffd27a; --sub-borde: rgba(0, 0, 0, 0.9); --sub-grupo: 4;
+  --sombra-titulo: 0 0.05em 0.3em rgba(0, 0, 0, 0.85);
+  --grano: 0.03; --vineta: 0.4; --entrada: subir; --sombra-portada: si;
+}

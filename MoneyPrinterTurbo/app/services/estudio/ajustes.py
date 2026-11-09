@@ -34,11 +34,22 @@ AJUSTABLES = {
     "estudio_flow_modelo": ("opcion", flow_gen.MODELOS),
     "estudio_flow_pasadas_extra": ("entero", (0, 5)),
     "estudio_carpetas_permitidas": ("lista", None),
+    "telegram_habilitado": ("bool", None),
+    "telegram_token": ("texto", None),
+    "telegram_chats": ("lista", None),
+    "gemini_api_key": ("texto", None),
+    "pexels_api_keys": ("lista", None),
+    "pixabay_api_keys": ("lista", None),
 }
+STOCK = {"pexels": "pexels_api_keys", "pixabay": "pixabay_api_keys"}
+TELEGRAM = ("telegram_habilitado", "telegram_token", "telegram_chats")
 POR_DEFECTO = {
     "claude_cli_model": "sonnet", "claude_cli_effort": "low", "claude_cli_timeout": 0,
     "estudio_flow_habilitado": False, "estudio_flow_modelo": "2", "estudio_flow_pasadas_extra": 2,
     "estudio_carpetas_permitidas": [],
+    "telegram_habilitado": False, "telegram_token": "", "telegram_chats": [],
+    "gemini_api_key": "",
+    "pexels_api_keys": [], "pixabay_api_keys": [],
 }
 
 _login = {"proceso": None, "salida": [], "url": None, "inicio": 0.0}
@@ -52,7 +63,43 @@ class AjusteInvalido(ValueError):
 # ------------------------------------------------------------------ opciones
 
 def opciones():
-    return {k: config.app.get(k, POR_DEFECTO[k]) for k in AJUSTABLES}
+    o = {k: config.app.get(k, POR_DEFECTO[k]) for k in AJUSTABLES}
+    # el token no sale del servidor: solo si esta puesto y su final para reconocerlo
+    token = str(o.pop("telegram_token") or "")
+    o["telegram_token_puesto"] = bool(token)
+    o["telegram_token_final"] = token[-4:] if token else ""
+    clave = str(o.pop("gemini_api_key") or "")   # igual con la clave de Gemini
+    o["gemini_clave_puesta"] = bool(clave)
+    o["gemini_clave_final"] = clave[-4:] if clave else ""
+    for prov, k in STOCK.items():   # claves de Pexels/Pixabay: solo sus finales
+        o[f"{prov}_claves"] = [c[-4:] for c in _lista(o.pop(k))]
+    return o
+
+
+def _lista(valor):
+    if isinstance(valor, str):
+        valor = [valor]
+    return [str(c).strip() for c in valor or [] if str(c).strip()]
+
+
+def stock(proveedor, agregar=None, quitar=None):
+    """Anade una clave de Pexels/Pixabay o quita la de esa posicion (la UI no ve las claves)."""
+    if proveedor not in STOCK:
+        raise AjusteInvalido("proveedor no valido (pexels o pixabay)")
+    k = STOCK[proveedor]
+    claves = _lista(config.app.get(k))
+    if agregar is not None:
+        nueva = str(agregar).strip()
+        if not re.fullmatch(r"[A-Za-z0-9-]{10,100}", nueva):
+            raise AjusteInvalido("esa clave no parece valida")
+        if nueva not in claves:
+            claves.append(nueva)
+    elif quitar is not None:
+        try:
+            claves.pop(int(quitar))
+        except (TypeError, ValueError, IndexError):
+            raise AjusteInvalido("no hay clave en esa posicion")
+    return guardar({k: claves})
 
 
 def _validar(clave, valor):
@@ -68,6 +115,8 @@ def _validar(clave, valor):
         if valor not in regla:
             raise AjusteInvalido(f"{clave}: valores validos {', '.join(regla)}")
         return valor
+    if tipo == "texto":
+        return str(valor or "").strip()
     if tipo == "entero":
         try:
             valor = int(valor)
@@ -128,7 +177,29 @@ def guardar(cambios: dict):
     _escribir_toml(limpios)
     config.app.update(limpios)
     logger.info(f"configuracion cambiada desde el Estudio: {sorted(limpios)}")
+    if any(k in limpios for k in TELEGRAM):
+        from app.services.estudio import telegram
+        threading.Thread(target=telegram.iniciar, daemon=True).start()
     return opciones()
+
+
+def telegram_permitir(chat):
+    from app.services.estudio import telegram
+    chat = str(chat or "").strip()
+    if not re.fullmatch(r"-?\d{3,20}", chat):
+        raise AjusteInvalido("numero de chat no valido")
+    chats = [str(c) for c in config.app.get("telegram_chats") or []]
+    telegram.quitar_pendiente(chat)
+    if chat not in chats:
+        guardar({"telegram_chats": chats + [chat]})
+    telegram.enviar(chat, "✅ Ya puedes usar el bot. Escribe /ayuda")
+    return opciones()
+
+
+def telegram_rechazar(chat):
+    from app.services.estudio import telegram
+    telegram.quitar_pendiente(chat)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ Claude

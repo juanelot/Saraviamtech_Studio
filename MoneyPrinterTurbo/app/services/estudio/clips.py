@@ -140,6 +140,60 @@ def borrar(cid):
         shutil.rmtree(_dir(cid), ignore_errors=True)
 
 
+def renombrar(cid, titulo):
+    titulo = str(titulo or "").strip()[:120]
+    if not titulo:
+        raise ValueError("escribe un nombre")
+    _leer(cid)
+    _guardar(cid, titulo=titulo)
+    return _leer(cid)
+
+
+# ------------------------------------------------------------------ shorts hechos: renombrar, borrar, rehacer
+
+def _shorts(cid):
+    return almacen.leer_json(_dir(cid, "exportados.json"), []) or []
+
+
+def _short(cid, nombre):
+    ruta_export(cid, nombre)   # valida el nombre y que exista
+    for x in _shorts(cid):
+        if x["archivo"] == nombre:
+            return x
+    raise FileNotFoundError("ese short no esta en la lista")
+
+
+def renombrar_short(cid, nombre, titulo):
+    titulo = str(titulo or "").strip()[:100]
+    if not titulo:
+        raise ValueError("escribe un nombre")
+    _short(cid, nombre)
+    hechos = [{**x, "titulo": titulo} if x["archivo"] == nombre else x for x in _shorts(cid)]
+    almacen.escribir_json(_dir(cid, "exportados.json"), hechos)
+    return ver(cid)
+
+
+def borrar_short(cid, nombre):
+    _short(cid, nombre)
+    with _candado:
+        if cid in _trabajos and _trabajos[cid].is_alive():
+            raise RuntimeError("esta trabajando: espera a que termine")
+        almacen.escribir_json(_dir(cid, "exportados.json"), [x for x in _shorts(cid) if x["archivo"] != nombre])
+        for f in os.listdir(_dir(cid, "exportados")):
+            if f.startswith(nombre[:-4]):   # el mp4, sus subtitulos .ass y su .broll.json
+                os.remove(_dir(cid, "exportados", f))
+    return ver(cid)
+
+
+def rehacer_short(cid, nombre):
+    """Lo vuelve a hacer con las mismas opciones (p. ej. tras cambiar el programa o para otro B-roll)."""
+    x = _short(cid, nombre)
+    if not x.get("opciones"):
+        raise ValueError("este short es de antes de guardar sus opciones: vuelve a exportarlo desde su momento")
+    borrar_short(cid, nombre)
+    return exportar(cid, {**x["opciones"], "titulo": x["titulo"]})   # con su nombre de ahora
+
+
 def _lanzar(cid, fn, *args):
     with _candado:
         if cid in _trabajos and _trabajos[cid].is_alive():
@@ -482,7 +536,7 @@ def _exportar(cid, o, huella):
         os.replace(tmp, final)
     hechos = [x for x in almacen.leer_json(_dir(cid, "exportados.json"), []) or [] if x["archivo"] != f"{huella}.mp4"]
     hechos.insert(0, {"archivo": f"{huella}.mp4", "titulo": o["titulo"] or o["gancho"] or f"{_mmss(o['inicio'])}-{_mmss(o['fin'])}",
-                      "inicio": o["inicio"], "fin": o["fin"], "creado": time.time(),
+                      "inicio": o["inicio"], "fin": o["fin"], "creado": time.time(), "opciones": o,
                       "tam_mb": round(os.path.getsize(final) / 1e6, 1)})
     almacen.escribir_json(_dir(cid, "exportados.json"), hechos)
     _guardar(cid, estado="listo", progreso=100, mensaje="short listo")

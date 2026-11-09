@@ -25,6 +25,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Errores que no se arreglan reintentando la misma escena: paran el lote.
 export class SinSesion extends Error {}
 export class Limite extends Error {}
+// "Detectamos actividad inusual": Google frena las peticiones seguidas; se espera un rato y se reintenta.
+export class Inusual extends Error {}
+const esInusual = (t) => /actividad inusual|unusual activity/i.test(t || '');
 
 export async function conectar() {
   await ensureChrome();
@@ -159,7 +162,7 @@ async function ponerReferencias(page, rutas) {
   const chips = page.locator('flow-ingredient-chip');
   for (const ruta of rutas) {
     const antes = await chips.count();
-    const cargar = page.getByRole('button', { name: /Cargar contenido multimedia|Upload media/i });
+    const cargar = page.getByRole('button', { name: /Cargar contenido multimedia|Subir archivos multimedia|Upload media/i });
     if (!(await cargar.isVisible().catch(() => false))) {
       await page.locator('flow-add-menu button.add-menu-trigger').click();
       await cargar.waitFor({ state: 'visible', timeout: 10000 });
@@ -167,7 +170,7 @@ async function ponerReferencias(page, rutas) {
     const [fc] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), cargar.click()]);
     await fc.setFiles(ruta);
     // Tras subir queda seleccionada en el panel con el boton "Agregar a la instruccion".
-    const agregar = page.getByRole('button', { name: /Agregar a la instrucci|Add to prompt/i });
+    const agregar = page.getByRole('button', { name: /Agregar a la instrucci|A[ñn]adir a (la )?petici|Add to prompt/i });
     await agregar.waitFor({ state: 'visible', timeout: 60000 });
     await agregar.click();
     for (let i = 0; i < 40 && (await chips.count()) <= antes; i++) await page.waitForTimeout(500);
@@ -257,6 +260,159 @@ export async function generarUna(page, context, prompt, { sondeos = 80, cadaMs =
     return { buffer, tipo, mediaId: id };
   }
   throw new Error(`No aparecio ninguna imagen nueva en ${Math.round((sondeos * cadaMs) / 1000)} s`);
+}
+
+// ---------- video (Veo) ----------
+
+export const VIDEO_MODELS = { 'lite': 'Veo 3.1 - Lite', 'fast': 'Veo 3.1 - Fast', 'quality': 'Veo 3.1 - Quality' };
+export const COSTE_VIDEO = 10;   // creditos de un clip de Veo 3.1 Lite (lo dice Flow al elegirlo)
+
+// Creditos que le quedan a la cuenta y su correo, del menu de la cuenta (arriba a la derecha).
+// "40 créditos de Google Flow" / "40 Google Flow credits". Devuelve {creditos: n|null, email}.
+export async function creditos(page) {
+  const boton = page.locator('.header-user-button').first();
+  await boton.waitFor({ state: 'visible', timeout: 20000 });
+  await boton.click();
+  let texto = '';
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(500);
+    texto = await page.evaluate(() => [...document.querySelectorAll('.cdk-overlay-container')].map((e) => e.innerText).join(' '));
+    if (/\d+\s*(cr[eé]ditos|credits|puntos|points)/i.test(texto)) break;
+  }
+  await page.keyboard.press('Escape');
+  await cerrarMenus(page);
+  const m = texto.match(/(\d[\d.,]*)\s*(cr[eé]ditos|credits|puntos|points)/i);
+  const email = (texto.match(/[\w.+-]+@[\w-]+\.[\w.]+/) || [null])[0];
+  return { creditos: m ? Number(m[1].replace(/[.,]/g, '')) : null, email };
+}
+
+function ajustesVideoOk(resumen, aspect) {
+  return /^\s*V[ií]deo(\s|·|$)/i.test(resumen)   // "Vídeo" en cuentas de España && /(^|\s)x1(\s|$)/.test(resumen) && resumen.includes(ICONO_ASPECTO[aspect] || '');
+}
+
+// Video, Fotogramas (cuadro inicial), formato, x1 y modelo de Veo.
+export async function configurarVideo(page, { aspect, model = 'lite' }) {
+  model = VIDEO_MODELS[String(model).toLowerCase()] || model;
+  const trigger = page.locator('button.settings-trigger-button');
+  const agent = page.locator('flow-agent-mode-toggle-chip button');
+  if (await agent.count() && (await agent.getAttribute('aria-pressed')) === 'true') await agent.click();
+  for (let vuelta = 0; vuelta < 3; vuelta++) {
+    const panel = page.locator('flow-prompt-box-settings');
+    for (let i = 0; i < 4 && !(await panel.isVisible()); i++) {
+      await trigger.click();
+      await panel.waitFor({ state: 'visible', timeout: 2500 }).catch(() => {});
+    }
+    if (!(await panel.isVisible())) throw new Error('No se pudo abrir el panel de ajustes de Flow');
+    await panel.getByRole('radiogroup').first().getByRole('radio').nth(1).click();   // video
+    await page.waitForTimeout(600);
+    await panel.getByRole('radio').filter({ has: icon(page, 'crop_free') }).click();   // Fotogramas
+    await panel.getByRole('radio').filter({ has: icon(page, ICONO_ASPECTO[aspect]) }).click();
+    await panel.getByRole('radio', { name: 'x1', exact: true }).click();
+    const modelBtn = panel.getByRole('button').filter({ hasText: /Veo|Omni/ });
+    if (!(await modelBtn.innerText()).includes(model)) {
+      await modelBtn.click();
+      await page.getByRole('menuitem').filter({ hasText: model }).first().click();
+    }
+    for (let i = 0; i < 4 && (await panel.isVisible()); i++) {
+      await page.keyboard.press('Escape');
+      await panel.waitFor({ state: 'hidden', timeout: 1500 }).catch(() => {});
+    }
+    for (let i = 0; i < 4; i++) {
+      await page.waitForTimeout(700);
+      if (ajustesVideoOk(await trigger.innerText().catch(() => ''), aspect)) return;
+    }
+  }
+  throw new Error(`Los ajustes de video de Flow no se aplicaron (muestra "${(await trigger.innerText()).replace(/\s+/g, ' ')}")`);
+}
+
+// El cuadro inicial: chip "Iniciar" > Cargar contenido multimedia > Agregar a la instruccion.
+async function ponerInicio(page, ruta) {
+  const chip = page.locator('flow-ingredient-bar button.empty-chip').first();
+  await chip.waitFor({ state: 'visible', timeout: 15000 });
+  await chip.click();
+  const cargar = page.locator('flow-add-menu-popover-content span.upload-text').first();
+  await cargar.waitFor({ state: 'visible', timeout: 10000 });
+  const [fc] = await Promise.all([page.waitForEvent('filechooser', { timeout: 10000 }), cargar.click()]);
+  await fc.setFiles(ruta);
+  const agregar = page.getByRole('button', { name: /Agregar a la instrucci|A[ñn]adir a (la )?petici|Add to prompt/i });
+  await agregar.waitFor({ state: 'visible', timeout: 60000 });
+  await agregar.click();
+  await page.locator('flow-ingredient-bar flow-image-ingredient-chip').first().waitFor({ state: 'visible', timeout: 30000 });
+  await page.waitForFunction(() => ![...document.querySelectorAll('flow-ingredient-bar [aria-busy=true]')].length, null, { timeout: 60000 }).catch(() => {});
+  await cerrarMenus(page);
+}
+
+const videosEnPagina = (page) => page.evaluate(() => ({
+  // cada clip por su miniatura o su video (en algunas cuentas el <video> solo aparece al pasar el raton)
+  srcs: [...document.querySelectorAll('flow-video-tile')].map((t) => {
+    const v = t.querySelector('video');
+    const i = t.querySelector('img');
+    return (v && (v.currentSrc || v.src)) || (i && i.src) || '';
+  }).filter(Boolean),
+  pendientes: document.querySelectorAll('flow-pending-tile').length,
+  errores: document.querySelectorAll('flow-error-tile').length,
+  textoErrores: [...document.querySelectorAll('flow-error-tile')].map((e) => e.innerText).join(' | '),
+  avisos: [...document.querySelectorAll('[role=alert], [role=status], .mat-mdc-snack-bar-container, simple-snack-bar, flow-banner')]
+    .map((e) => e.innerText).join(' | '),
+}));
+
+/**
+ * UN clip de Veo desde un cuadro inicial (inicio = ruta de imagen). Tarda ~4 min: se mira cada 3 s hasta 12 min.
+ * Se usa siempre en un proyecto recien abierto (cuadro inicial vacio). Devuelve { buffer } (mp4).
+ * Lanza Limite, SinSesion o Error.
+ */
+export async function generarVideo(page, context, prompt, { inicio, sondeos = 240, cadaMs = 3000 } = {}) {
+  exigirSesion(page);
+  await cerrarMenus(page);
+  const clear = page.locator('div.top-right-actions button.clear-button');
+  if (await clear.isVisible().catch(() => false)) {
+    await clear.click();
+    await page.waitForTimeout(800);
+  }
+  if (inicio) await ponerInicio(page, inicio);
+  const editor = page.locator('div.ProseMirror');
+  await editor.click();
+  await page.keyboard.press(SELECT_ALL);
+  await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(prompt.replace(/\s+/g, ' ').trim());
+  const antes = await videosEnPagina(page);
+  const vistos = new Set(antes.srcs);
+  const submit = page.locator('flow-generate-icon-button button[type=submit]');
+  await page.waitForFunction((el) => !el.disabled, await submit.elementHandle(), { timeout: 10000 });
+  await submit.click();
+  let vioPendiente = false;
+  for (let i = 0; i < sondeos; i++) {
+    await page.waitForTimeout(cadaMs);
+    exigirSesion(page);
+    const ahora = await videosEnPagina(page);
+    const avisoNuevo = ahora.avisos !== antes.avisos ? ahora.avisos : '';
+    if (esLimite(avisoNuevo) || esLimite(ahora.textoErrores)) {
+      throw new Limite(`Flow avisa de limite/creditos: ${(avisoNuevo || ahora.textoErrores).replace(/\s+/g, ' ').slice(0, 200)}`);
+    }
+    if (ahora.errores > antes.errores && !ahora.pendientes) {
+      const motivo = ahora.textoErrores.replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (esInusual(motivo) || esInusual(avisoNuevo)) throw new Inusual('Flow detecto actividad inusual (peticiones seguidas)');
+      throw new Error(`Flow no pudo generar el video${motivo ? `: ${motivo}` : ''}`);
+    }
+    vioPendiente = vioPendiente || ahora.pendientes > 0;
+    const k = ahora.srcs.findIndex((s) => !vistos.has(s));
+    if (k >= 0 && !ahora.pendientes) {
+      // el video de esa tesela: si solo hay miniatura, se pasa el raton para que Flow ponga el <video>
+      const tesela = page.locator('flow-video-tile').nth(k);
+      let src = await tesela.evaluate((t) => { const v = t.querySelector('video'); return v && (v.currentSrc || v.src); });
+      for (let j = 0; j < 5 && !src; j++) {
+        await tesela.hover().catch(() => {});
+        await page.waitForTimeout(1500);
+        src = await tesela.evaluate((t) => { const v = t.querySelector('video'); return v && (v.currentSrc || v.src); });
+      }
+      if (!src) throw new Error('Flow hizo el video pero no se pudo leer su enlace');
+      const res = await context.request.get(src, { timeout: 120000 });
+      if (!res.ok()) throw new Error(`Fallo la descarga (${res.status()}) del video`);
+      return { buffer: await res.body() };
+    }
+    if (i === 10 && !vioPendiente) throw new Error('Flow no empezo a generar el video (¿sin creditos?)');
+  }
+  throw new Error(`No aparecio el video en ${Math.round((sondeos * cadaMs) / 60000)} min`);
 }
 
 export { sleep };

@@ -98,6 +98,30 @@ FAMILIAS = {
         "referencias": ["thriller/interior.jpg", "thriller/exterior.jpg"],
     },
 }
+# Video 3D: cada escena es un diorama 3D (render tipo juguete de plastilina) hecho en Flow; misma receta en
+# todas para que el video se vea de una pieza.
+FAMILIAS["diorama"] = {
+    "pegatina": "A polished stylized 3D render of {}, Pixar-like soft clay toy look, smooth rounded shapes, soft "
+                "subsurface materials, vibrant but harmonious colors, soft studio lighting, full figure, centered",
+    "escena": "Stylized 3D isometric diorama of {}, built on a small floating block of ground whose cut sides show "
+              "layers of soil, miniature world with a tilt-shift feel, Pixar-like soft clay toy materials, rounded "
+              "shapes, soft global illumination with warm cinematic key light and gentle rim light, rich purposeful "
+              "detail around one clear focal subject, plain dark warm gradient background around the block. The scene "
+              "SHOWS the action happening. No text, no letters, no numbers, no captions, no logos, no watermark, "
+              "vertical composition",
+}
+# Novela (estilo de la Fabrica con clips de Veo): fotogramas de cine; cada imagen es el primer cuadro de un clip.
+# ficha = retrato de referencia de un personaje (se sube con cada escena donde sale para que no cambie de cara).
+FAMILIAS["novela"] = {
+    "pegatina": "A cinematic photorealistic portrait of {}, dramatic soft key light, shallow depth of field, full figure, centered",
+    "escena": "Cinematic film still of {}. Photorealistic, dramatic telenovela lighting with warm key light and soft "
+              "shadows, shallow depth of field, 35mm lens, rich natural color grade, expressive faces and clear body "
+              "language, the characters caught in the middle of the action, believable real locations. No text, no "
+              "letters, no captions, no subtitles, no logos, no watermark, vertical composition",
+    "ficha": "Character reference sheet photo of {}. Photorealistic, the same person shown twice side by side: a "
+             "head-and-shoulders portrait looking at the camera and a full body shot standing, neutral light gray "
+             "studio background, soft even light, natural skin, sharp focus. No text, no letters, no watermark, vertical composition",
+}
 DIR_REFERENCIAS = os.path.join(DIR_BASE, "referencias")
 
 
@@ -110,7 +134,8 @@ def referencias(familia):
 # nombre para la pantalla de cada familia (madera es la base)
 NOMBRES_FAMILIA = {"madera": "Munecos de madera", "plano": "Ilustracion plana", "grabado": "Grabado antiguo",
                    "stickman": "Stickman (palitos)", "retrotv": "Retro TV (siluetas blancas)",
-                   "thriller": "Thriller dibujado (guantes blancos)"}
+                   "thriller": "Thriller dibujado (guantes blancos)", "diorama": "Diorama 3D (plastilina)",
+                   "novela": "Novela (fotograma de cine)"}
 DIR_FAMILIAS = os.path.join(DIR_BASE, "familias")
 
 # Grupos para ordenar la biblioteca en pantalla (lo que no este aqui va a "otros"; las propias, a "propias").
@@ -139,6 +164,7 @@ GRUPOS = {
 _GRUPO_DE = {k: g for g, (_n, ids) in GRUPOS.items() for k in ids.split()}
 # que grupos se ven primero con cada nicho de la Fabrica
 NICHO_GRUPOS = {
+    "novelas": ["personas"],
     "mapas": ["historia", "lugares", "personas", "naturaleza"],
     "datos": ["dinero", "lugares", "ciencia", "personas"],
     "curiosidades": ["ciencia", "naturaleza", "personas", "historia"],
@@ -330,19 +356,30 @@ def _anotar(tipo, clave, descripcion, **extra):
 
 # ------------------------------------------------------------------ crear, subir, borrar
 
-def crear(tipo, descripcion, nombre="", clase="personaje", reemplazar=False, familia=None):
+def crear(tipo, descripcion, nombre="", clase="personaje", reemplazar=False, familia=None, referencias_extra=None,
+          detalle=""):
     """Genera con Nano Banana (Flow, solo local) y la guarda como propia. Bloquea ~40-90 s (mas si Flow
-    esta ocupado con otra cosa: espera su turno). Devuelve la fila del catalogo."""
+    esta ocupado con otra cosa: espera su turno). Devuelve la fila del catalogo.
+    referencias_extra: imagenes que se suben ademas de las de la familia (fichas de personajes); detalle: texto que
+    se suma al prompt sin guardarse en la descripcion (quien es quien en esas imagenes)."""
     if tipo not in TIPOS:
         raise ValueError("tipo: pegatinas o ilustraciones")
     descripcion = str(descripcion or "").strip()
     if not descripcion:
         raise ValueError("describe lo que quieres dibujar")
     clave = clave_de(nombre or descripcion) if reemplazar else _clave_libre(tipo, nombre or descripcion)
-    _generar(tipo, prompt(tipo, descripcion, clase, familia), _dir_propias(tipo, f"{clave}.webp"),
-             referencias=referencias(familia))
+    texto = prompt(tipo, descripcion, clase, familia) + (f". {detalle}" if detalle else "")
+    _generar(tipo, texto, _dir_propias(tipo, f"{clave}.webp"),
+             referencias=[*referencias(familia), *(referencias_extra or [])][:4])
     _anotar(tipo, clave, descripcion, clase=clase, **({"familia": familia} if familia in FAMILIAS else {}))
     return {"id": clave, "descripcion": descripcion, "origen": "propia"}
+
+
+def ficha(descripcion, destino, familia="novela"):
+    """Retrato de referencia de un personaje (Nano Banana) en destino (.webp). Solo local (Flow)."""
+    plantilla = (FAMILIAS.get(familia) or {}).get("ficha") or FAMILIAS["novela"]["ficha"]
+    _generar("ilustraciones", plantilla.format(str(descripcion).strip()), destino)
+    return destino
 
 
 def _generar(tipo, texto, destino, alto=ALTO_PEGATINA, referencias=None):

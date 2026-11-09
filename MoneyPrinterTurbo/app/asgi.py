@@ -75,8 +75,12 @@ app.mount("/", StaticFiles(directory=public_dir, html=True), name="")
 @app.on_event("shutdown")
 def shutdown_event():
     logger.info("shutdown event")
+    from app.services.estudio import telegram
+    telegram.detener()
 
 
 @app.on_event("startup")
 def startup_event():
     logger.info("startup event")
+    from app.services.estudio import telegram
+    telegram.iniciar()   # bot de Telegram, si esta activado en Configuracion

@@ -5,7 +5,9 @@
 export const FRASES_LIMITE = [
   // es
   'alcanzado el limite', 'limite de uso', 'limite diario', 'cuota', 'has alcanzado', 'demasiadas solicitudes', 'intentalo mas tarde', 'vuelve a intentarlo mas tarde',
+  'creditos insuficientes', 'puntos insuficientes', 'suficientes puntos', 'sin puntos', 'no tienes suficientes creditos', 'sin creditos', 'no te quedan creditos',
   // en
+  'not enough credits', 'insufficient credits', 'out of credits',
   'quota', 'rate limit', 'limit reached', 'reached your', 'too many requests', 'try again later', 'daily limit', 'usage limit',
   // pt
   'sua cota', 'atingiu o limite', 'tente novamente mais tarde', 'muitas solicitacoes',

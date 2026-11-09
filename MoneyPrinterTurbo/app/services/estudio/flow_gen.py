@@ -125,7 +125,7 @@ def estado(pid, escenas):
     """Progreso por escena. `escenas` = las del proyecto (con ediciones aplicadas)."""
     datos = _leer(pid)
     hechas = _imagenes(pid)
-    en_marcha = corriendo(pid)
+    en_marcha = corriendo(pid) and _actual.get("tipo") != "video"   # Veo tiene su propio estado (estado_videos)
     por_escena = datos.get("escenas") or {}
     filas = []
     for e in escenas:
@@ -283,3 +283,211 @@ def detener(pid, forzar=False):
         else:
             proceso.terminate()
     return True
+
+
+# ------------------------------------------------------------------ cuentas (perfiles de Chrome) y clips de Veo
+
+COSTE_VIDEO = 10           # creditos de un clip de Veo 3.1 Lite
+_revision = {"hilo": None}
+
+
+def perfiles():
+    """{"actual", "perfiles": [{"dir", "email", "creditos", "visto", "sin_sesion"}], "ocupado", "revisando"}."""
+    d = _cli("perfiles")
+    d["revisando"] = bool(_revision["hilo"] and _revision["hilo"].is_alive())
+    d["coste_video"] = COSTE_VIDEO
+    for p in d.get("perfiles") or []:
+        p.pop("dir", None)   # la ruta del disco no le sirve a la pantalla
+    return d
+
+
+def _libre():
+    if corriendo() or (_revision["hilo"] and _revision["hilo"].is_alive()):
+        raise RuntimeError("Flow esta ocupado: espera a que termine")
+
+
+def perfil_nuevo():
+    """Crea un perfil y abre su Chrome en el inicio de sesion de Google (otra cuenta)."""
+    _libre()
+    _cli("perfil-nuevo", timeout=60)
+    return perfiles()
+
+
+def perfil_abrir(i):
+    _libre()
+    _cli("perfil-abrir", str(int(i)), timeout=60)
+    return perfiles()
+
+
+def perfil_quitar(i):
+    _libre()
+    _cli("perfil-quitar", str(int(i)), timeout=60)
+    return perfiles()
+
+
+def revisar_perfiles():
+    """Entra en cada cuenta y anota correo, sesion y creditos (en segundo plano: ~15 s por cuenta)."""
+    _libre()
+
+    def correr():
+        try:
+            _cli("revisar", timeout=60 * 30)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"flow: revisar cuentas: {e}")
+    _revision["hilo"] = threading.Thread(target=correr, daemon=True, name="flow-revisar")
+    _revision["hilo"].start()
+    return perfiles()
+
+
+def creditos_video():
+    """Clips de video que quedan entre todas las cuentas (por lo ultimo que se vio), o None si no se sabe."""
+    try:
+        d = _cli("perfiles")
+    except Exception:  # noqa: BLE001
+        return None
+    vistos = [p.get("creditos") for p in d.get("perfiles") or [] if not p.get("sin_sesion")]
+    if not any(c is not None for c in vistos):
+        return None
+    return sum((c or 0) // COSTE_VIDEO for c in vistos if c is not None)
+
+
+def videos(clips, salida, aspecto="9:16", avisar=lambda evento: None, detener=None, timeout=60 * 60 * 6,
+           al_lanzar=lambda proceso: None):
+    """Clips de Veo, uno por {"n", "prompt", "inicio"} (inicio = imagen del cuadro inicial), en salida/clip_NNNN.mp4.
+    Bloquea (unos 4 min por clip) y rota las cuentas de Flow segun sus creditos. avisar(evento) recibe cada linea
+    de tools/flow/videos.js. Devuelve {"codigo", "ok", "fallidos"}: codigo 4 = sin creditos en ninguna cuenta,
+    3 = ninguna cuenta con sesion (los clips que falten se quedan sin hacer)."""
+    _exigir()
+    os.makedirs(salida, exist_ok=True)
+    script = os.path.join(salida, "clips.json")
+    with open(script, "w", encoding="utf-8") as f:
+        json.dump({"clips": clips}, f, ensure_ascii=False)
+    orden = [_node(), os.path.join(_dir_flow(), "videos.js"), "--script", script, "--out", salida, "--aspect", aspecto]
+    if detener:
+        orden += ["--detener", detener]
+    proceso = subprocess.Popen(orden, cwd=_dir_flow(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                               encoding="utf-8", errors="replace", **SIN_VENTANA)
+    al_lanzar(proceso)
+    final = {}
+    inicio = time.time()
+    for linea in proceso.stdout:
+        if not linea.strip().startswith("{"):
+            continue
+        try:
+            evento = json.loads(linea)
+        except ValueError:
+            continue
+        final = evento if evento.get("evento") else final
+        try:
+            avisar(evento)
+        except Exception:  # noqa: BLE001
+            pass
+        if time.time() - inicio > timeout:
+            proceso.kill()
+            break
+    proceso.wait()
+    return {"codigo": proceso.returncode, "ok": final.get("ok", 0), "fallidos": final.get("fallidos") or [],
+            "motivo": final.get("motivo")}
+
+
+# ------------------------------------------------------------------ clips de Veo para las escenas de un proyecto
+
+def _ruta_estado_videos(pid):
+    return almacen.dir_proyecto(pid, "flow", "videos.json")
+
+
+def _videos_hechos(pid):
+    """{escena: archivo} de los videos que ya hay en recursos/videos (subidos o hechos con Veo)."""
+    carpeta = almacen.dir_proyecto(pid, "recursos", "videos")
+    hechos = {}
+    if os.path.isdir(carpeta):
+        for n in os.listdir(carpeta):
+            ruta = os.path.join(carpeta, n)
+            if not n.endswith(".part") and medios.tipo_de(ruta) == "video":
+                k = recursos.numero_escena(n)
+                if k is not None:
+                    hechos[k] = f"videos/{n}"
+    return hechos
+
+
+def estado_videos(pid, escenas):
+    datos = almacen.leer_json(_ruta_estado_videos(pid), {}) or {}
+    imagenes, hechos = _imagenes(pid), _videos_hechos(pid)
+    en_marcha = corriendo(pid) and _actual.get("tipo") == "video"
+    filas = []
+    for e in escenas:
+        n = e["scene_number"]
+        info = (datos.get("escenas") or {}).get(str(n)) or {}
+        if n in hechos:
+            est = "lista"
+        elif not (e.get("video_prompt") or "").strip():
+            est = "sin_prompt"
+        elif n not in imagenes:
+            est = "sin_imagen"
+        elif en_marcha and info.get("estado") == "generando":
+            est = "en_curso"
+        elif info.get("estado") == "error":
+            est = "error"
+        else:
+            est = "pendiente"
+        filas.append({"escena": n, "estado": est, "archivo": hechos.get(n), "motivo": info.get("motivo") or ""})
+    cuenta = {k: sum(1 for f in filas if f["estado"] == k)
+              for k in ("lista", "pendiente", "error", "en_curso", "sin_prompt", "sin_imagen")}
+    return {"corriendo": en_marcha, "otro": corriendo() and not en_marcha, "resultado": None if en_marcha else datos.get("resultado"),
+            "motivo": datos.get("motivo") or "", "mensaje": datos.get("mensaje") or "", "cuenta": cuenta, "escenas": filas,
+            "clips_disponibles": creditos_video()}
+
+
+def iniciar_videos(pid, escenas, aspecto):
+    """Un clip de Veo por escena que tenga imagen y prompt de video y aun no tenga video: la imagen es el primer
+    cuadro. Van a recursos/videos/scene_NNNN.mp4 (el video de una escena gana a su imagen). En segundo plano."""
+    _exigir()
+    imagenes, hechos = _imagenes(pid), _videos_hechos(pid)
+    elegidas = [e for e in escenas if (e.get("video_prompt") or "").strip()
+                and e["scene_number"] in imagenes and e["scene_number"] not in hechos]
+    if not elegidas:
+        raise ValueError("no hay escenas con imagen y prompt de video que falten por hacer")
+    carpeta = almacen.dir_proyecto(pid, "flow", "veo", crear=True)
+    clips = [{"n": e["scene_number"], "inicio": almacen.dir_proyecto(pid, "recursos", imagenes[e["scene_number"]]),
+              "prompt": f"{e['video_prompt'].strip()} No text on screen."} for e in elegidas]
+    detener = _ruta_detener(pid)
+    if os.path.exists(detener):
+        os.remove(detener)
+    datos = {"escenas": {}, "resultado": None, "motivo": "", "mensaje": "preparando Flow", "inicio": time.time()}
+    almacen.escribir_json(_ruta_estado_videos(pid), datos)
+    destino = almacen.dir_proyecto(pid, "recursos", "videos", crear=True)
+
+    def avisar(ev):
+        if "clip" in ev:
+            datos["escenas"][str(ev["clip"])] = {"estado": ev.get("estado"), "motivo": ev.get("motivo") or ""}
+            if ev.get("estado") == "ok":
+                hecho = os.path.join(carpeta, f"clip_{int(ev['clip']):04d}.mp4")
+                if os.path.isfile(hecho):
+                    os.replace(hecho, os.path.join(destino, f"scene_{int(ev['clip']):04d}.mp4"))
+            datos["mensaje"] = {"generando": f"Veo hace la escena {ev['clip']} (2-4 min)",
+                                "espera": f"Google pide ir mas despacio: esperando {ev.get('segundos')} s",
+                                }.get(ev.get("estado"), datos["mensaje"])
+        elif ev.get("evento") == "cuenta" and ev.get("estado") == "probando":
+            datos["mensaje"] = f"mirando los creditos de la cuenta {ev['perfil'] + 1}"
+        almacen.escribir_json(_ruta_estado_videos(pid), datos)
+
+    def registrar(proceso):
+        with _candado:
+            _actual.clear()
+            _actual.update({"pid": pid, "proceso": proceso, "tipo": "video"})
+
+    def correr():
+        try:
+            r = videos(clips, carpeta, aspecto if aspecto in ("9:16", "16:9") else "16:9", avisar, detener, al_lanzar=registrar)
+            datos["resultado"] = {0: "fin", 2: "detenido", 3: "sin_sesion", 4: "sin_creditos", 5: "inusual"}.get(r["codigo"], "error")
+            datos["motivo"] = r.get("motivo") or ""
+        except Exception as e:  # noqa: BLE001
+            datos["resultado"], datos["motivo"] = "error", str(e)[:300]
+        datos["mensaje"], datos["fin"] = "", time.time()
+        almacen.escribir_json(_ruta_estado_videos(pid), datos)
+
+    with _candado:
+        if _actual and _actual["proceso"].poll() is None:
+            raise RuntimeError("Flow ya esta trabajando" + ("" if _actual["pid"] == pid else " para otro proyecto"))
+    threading.Thread(target=correr, daemon=True, name=f"veo-{pid}").start()
+    return {"lanzadas": len(elegidas)}

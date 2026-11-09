@@ -5,6 +5,7 @@ import { Eye, Film, FolderOpen, ImageIcon, Link2, Loader2, Trash2, Upload } from
 import type { PanelProps } from "../Proyecto";
 import { AvisoError, Campo, Tarjeta } from "../ui";
 import GenerarFlow from "./GenerarFlow";
+import GenerarVeo from "./GenerarVeo";
 import { api, mini, url, type Recurso, type Subido } from "@/lib/api";
 
 // En que subcarpeta cae un archivo segun su ruta dentro de la carpeta elegida
@@ -146,6 +147,7 @@ export default function PanelRecursos({ id, vista, p, set, ejecutar, ocupado, re
     <div className="space-y-5">
       <AvisoError texto={et.error} />
       {modoEscenas && <GenerarFlow id={id} alCambiar={alCambiarFlow} />}
+      {modoEscenas && <GenerarVeo id={id} alCambiar={alCambiarFlow} />}
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div
           onDragOver={(e) => { e.preventDefault(); setArrastrando(true); }}

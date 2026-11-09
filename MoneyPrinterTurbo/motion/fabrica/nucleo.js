@@ -98,6 +98,12 @@
   const fondo = () => {
     const f = crear("div", "fx-fondo", document.getElementById("root"));
     f.style.background = `radial-gradient(ellipse at 50% 38%, ${v("fondo")} 0%, ${v("fondo-2")} 100%)`;
+    if (E.fondo_desenfocado) {
+      // Diorama 3D: la imagen de la escena anterior, desenfocada y oscura, detras de los datos
+      imagen(E.fondo_desenfocado);
+      const img = crear("div", "fx-capa", f);
+      img.style.cssText += `inset:-6%;background:url(${E.fondo_desenfocado}) center/cover;filter:blur(${corto * 0.022}px) brightness(0.38) saturate(1.1);`;
+    }
     if (window.CFG.textura) {
       imagen("textura.webp");
       const img = crear("div", "fx-capa", f);
@@ -446,5 +452,7 @@
   };
 
   window.F = { W, H, D, E, v, corto, vertical, cuadrado, zona, tl, escena, crear, escapar, marcar, enPalabras, ajustar, entrar,
-               formato, aNumero, contar, fondo, texturaMapa, montar, imagen, alPintar: (fn) => pintores.push(fn) };
+               formato, aNumero, contar, fondo, texturaMapa, montar, imagen, alPintar: (fn) => pintores.push(fn),
+               // algo que tiene que estar listo antes de registrar la linea de tiempo (el mundo 3D)
+               esperar: (promesa) => cargas.push(promesa.catch((e) => console.error(e))) };
 })();
